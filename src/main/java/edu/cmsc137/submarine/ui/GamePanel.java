@@ -1,5 +1,7 @@
-package edu.cmsc137.submarine;
+package edu.cmsc137.submarine.ui;
 
+import edu.cmsc137.submarine.core.GameState;
+import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;

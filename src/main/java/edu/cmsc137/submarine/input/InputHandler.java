@@ -1,4 +1,4 @@
-package edu.cmsc137.submarine;
+package edu.cmsc137.submarine.input;
 
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;

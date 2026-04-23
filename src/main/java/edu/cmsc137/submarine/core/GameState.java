@@ -1,4 +1,4 @@
-package edu.cmsc137.submarine;
+package edu.cmsc137.submarine.core;
 
 // pure game state container with no rendering or input dependencies
 public class GameState {
