@@ -9,6 +9,10 @@ public class GameState {
     // submarine-wide state
     private int buoyancy;
     private double timeRemainingSeconds;
+    private final int buoyancyTarget;
+    private final double buoyancyDrainPerSecond;
+    private boolean sank;
+    private double buoyancyDrainAccumulator;
 
     // local player state
     private double playerX;
@@ -16,10 +20,25 @@ public class GameState {
     private String heldItem;
 
     public GameState(int worldWidth, int worldHeight, double initialTimeSeconds) {
+        this(worldWidth, worldHeight, initialTimeSeconds, 50, 100, 1.2);
+    }
+
+    public GameState(
+            int worldWidth,
+            int worldHeight,
+            double initialTimeSeconds,
+            int initialBuoyancy,
+            int buoyancyTarget,
+            double buoyancyDrainPerSecond
+    ) {
         this.worldWidth = worldWidth;
         this.worldHeight = worldHeight;
-        this.buoyancy = 0;
+        this.buoyancy = Math.max(0, initialBuoyancy);
         this.timeRemainingSeconds = initialTimeSeconds;
+        this.buoyancyTarget = Math.max(1, buoyancyTarget);
+        this.buoyancyDrainPerSecond = Math.max(0.0, buoyancyDrainPerSecond);
+        this.sank = false;
+        this.buoyancyDrainAccumulator = 0.0;
 
         // spawn roughly at the center
         this.playerX = worldWidth * 0.5;
@@ -28,8 +47,24 @@ public class GameState {
     }
 
     public void update(double deltaSeconds) {
+        if (isRoundOver()) {
+            return;
+        }
+
         // countdown cannot go below zero
         timeRemainingSeconds = Math.max(0.0, timeRemainingSeconds - deltaSeconds);
+
+        // apply passive flooding over time
+        buoyancyDrainAccumulator += buoyancyDrainPerSecond * deltaSeconds;
+        int drained = (int) buoyancyDrainAccumulator;
+        if (drained > 0) {
+            buoyancy = Math.max(0, buoyancy - drained);
+            buoyancyDrainAccumulator -= drained;
+        }
+
+        if (buoyancy <= 0) {
+            sank = true;
+        }
     }
 
     public void movePlayer(double dx, double dy, int playerWidth, int playerHeight) {
@@ -55,11 +90,27 @@ public class GameState {
 
     public void addBuoyancy(int amount) {
         // ignore negative rewards
-        buoyancy += Math.max(0, amount);
+        buoyancy = Math.min(buoyancyTarget, buoyancy + Math.max(0, amount));
     }
 
     public boolean isGameOver() {
-        return timeRemainingSeconds <= 0.0;
+        return isRoundOver();
+    }
+
+    public boolean hasWon() {
+        return buoyancy >= buoyancyTarget;
+    }
+
+    public boolean hasLostBySinking() {
+        return sank;
+    }
+
+    public boolean hasLostByTime() {
+        return timeRemainingSeconds <= 0.0 && !hasWon();
+    }
+
+    public boolean isRoundOver() {
+        return hasWon() || hasLostBySinking() || hasLostByTime();
     }
 
     public int getWorldWidth() {
@@ -72,6 +123,14 @@ public class GameState {
 
     public int getBuoyancy() {
         return buoyancy;
+    }
+
+    public int getBuoyancyTarget() {
+        return buoyancyTarget;
+    }
+
+    public double getBuoyancyDrainPerSecond() {
+        return buoyancyDrainPerSecond;
     }
 
     public double getTimeRemainingSeconds() {
