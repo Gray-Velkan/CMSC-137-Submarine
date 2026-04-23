@@ -1,5 +1,7 @@
 package edu.cmsc137.submarine.core;
 
+import java.awt.Rectangle;
+
 // pure game state container with no rendering or input dependencies
 public class GameState {
     // world bounds for movement clamping
@@ -151,6 +153,29 @@ public class GameState {
 
     public void setHeldItem(String heldItem) {
         this.heldItem = heldItem;
+    }
+
+    public void setPlayerPosition(double x, double y) {
+        this.playerX = clamp(x, 0.0, worldWidth);
+        this.playerY = clamp(y, 0.0, worldHeight);
+    }
+
+    public Rectangle getPlayerHitbox(int playerWidth, int playerHeight) {
+        return new Rectangle(
+                (int) Math.round(playerX),
+                (int) Math.round(playerY),
+                playerWidth,
+                playerHeight
+        );
+    }
+
+    public Rectangle getProjectedPlayerHitbox(double dx, double dy, int playerWidth, int playerHeight) {
+        return new Rectangle(
+                (int) Math.round(playerX + dx),
+                (int) Math.round(playerY + dy),
+                playerWidth,
+                playerHeight
+        );
     }
 
     private static double clamp(double value, double min, double max) {

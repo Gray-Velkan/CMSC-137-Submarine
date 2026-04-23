@@ -5,8 +5,10 @@ import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.HierarchyEvent;
 import java.awt.geom.RoundRectangle2D;
@@ -15,24 +17,25 @@ import java.util.List;
 import javax.swing.JPanel;
 
 public class GamePanel extends JPanel implements Runnable {
-    public static final int PANEL_WIDTH = 960;
-    public static final int PANEL_HEIGHT = 540;
+    public static final int PANEL_WIDTH = 1280;
+    public static final int PANEL_HEIGHT = 768;
 
-    private static final int PLAYER_WIDTH = 28;
-    private static final int PLAYER_HEIGHT = 28;
+    private static final int PLAYER_WIDTH = 26;
+    private static final int PLAYER_HEIGHT = 26;
     private static final double PLAYER_SPEED_PX_PER_SEC = 190.0;
 
-    private static final int TASK_STATION_W = 78;
-    private static final int TASK_STATION_H = 78;
-    private static final double TASK_INTERACTION_RADIUS = 80.0;
+    private static final int TASK_STATION_W = 72;
+    private static final int TASK_STATION_H = 72;
+    private static final double TASK_INTERACTION_RADIUS = 78.0;
 
-    private static final int ITEM_SIZE = 18;
-    private static final double ITEM_PICKUP_RADIUS = 56.0;
+    private static final int ITEM_SIZE = 16;
+    private static final double ITEM_PICKUP_RADIUS = 52.0;
     private static final String NO_ITEM = "None";
 
     private static final double INITIAL_TIME_SECONDS = 180.0;
     private static final int TARGET_FPS = 60;
 
+    private final TileManager tileManager;
     private final GameState gameState;
     private final InputHandler inputHandler;
     private final List<TaskStation> taskStations;
@@ -42,13 +45,21 @@ public class GamePanel extends JPanel implements Runnable {
     private volatile boolean running;
 
     public GamePanel() {
-        this.gameState = new GameState(PANEL_WIDTH, PANEL_HEIGHT, INITIAL_TIME_SECONDS);
+        this.tileManager = new TileManager();
+        this.gameState = new GameState(
+                tileManager.getMapWidthPixels(),
+                tileManager.getMapHeightPixels(),
+                INITIAL_TIME_SECONDS
+        );
         this.inputHandler = new InputHandler();
         this.taskStations = createTaskStations();
         this.worldItems = createInitialItems();
 
+        // place player on central hallway floor tile
+        gameState.setPlayerPosition(tileToPixel(12) + 4, tileToPixel(13) + 3);
+
         setPreferredSize(new Dimension(PANEL_WIDTH, PANEL_HEIGHT));
-        setBackground(new Color(16, 28, 40));
+        setBackground(new Color(7, 14, 22));
         setFocusable(true);
         addKeyListener(inputHandler);
 
@@ -147,12 +158,9 @@ public class GamePanel extends JPanel implements Runnable {
             dy /= length;
         }
 
-        gameState.movePlayer(
-                dx * PLAYER_SPEED_PX_PER_SEC * deltaSeconds,
-                dy * PLAYER_SPEED_PX_PER_SEC * deltaSeconds,
-                PLAYER_WIDTH,
-                PLAYER_HEIGHT
-        );
+        double moveX = dx * PLAYER_SPEED_PX_PER_SEC * deltaSeconds;
+        double moveY = dy * PLAYER_SPEED_PX_PER_SEC * deltaSeconds;
+        movePlayerWithTileCollision(moveX, moveY);
 
         // drop held item to current position
         if (inputHandler.consumeDrop()) {
@@ -162,6 +170,20 @@ public class GamePanel extends JPanel implements Runnable {
         // interact tries pickup first, then station use
         if (inputHandler.consumeInteract()) {
             handleInteraction();
+        }
+    }
+
+    private void movePlayerWithTileCollision(double moveX, double moveY) {
+        // x-axis projection for AABB collision
+        Rectangle projectedX = gameState.getProjectedPlayerHitbox(moveX, 0.0, PLAYER_WIDTH, PLAYER_HEIGHT);
+        if (!tileManager.isSolidHitbox(projectedX)) {
+            gameState.movePlayer(moveX, 0.0, PLAYER_WIDTH, PLAYER_HEIGHT);
+        }
+
+        // y-axis projection for AABB collision and wall sliding
+        Rectangle projectedY = gameState.getProjectedPlayerHitbox(0.0, moveY, PLAYER_WIDTH, PLAYER_HEIGHT);
+        if (!tileManager.isSolidHitbox(projectedY)) {
+            gameState.movePlayer(0.0, moveY, PLAYER_WIDTH, PLAYER_HEIGHT);
         }
     }
 
@@ -243,18 +265,27 @@ public class GamePanel extends JPanel implements Runnable {
 
     private List<TaskStation> createTaskStations() {
         List<TaskStation> stations = new ArrayList<>();
-        stations.add(new TaskStation("Engine Console", 680, 100, 18, "Wrench"));
-        stations.add(new TaskStation("Ballast Controls", 730, 350, 20, "Sealant"));
-        stations.add(new TaskStation("Reactor Switchboard", 190, 300, 15, "Battery"));
+        // command bridge
+        stations.add(new TaskStation("Nav Console", tileToPixel(5), tileToPixel(3), 18, "Sealant"));
+        // reactor room
+        stations.add(new TaskStation("Reactor Core", tileToPixel(22), tileToPixel(13), 20, "Battery"));
+        // engine room
+        stations.add(new TaskStation("Engine Console", tileToPixel(31), tileToPixel(8), 15, "Wrench"));
         return stations;
     }
 
     private List<ItemEntity> createInitialItems() {
         List<ItemEntity> items = new ArrayList<>();
-        items.add(new ItemEntity(120, 110, "Wrench"));
-        items.add(new ItemEntity(420, 220, "Sealant"));
-        items.add(new ItemEntity(260, 430, "Battery"));
+        // storage / airlock room
+        items.add(new ItemEntity(tileToPixel(20), tileToPixel(4), "Wrench"));
+        items.add(new ItemEntity(tileToPixel(22), tileToPixel(4), "Sealant"));
+        // reactor room
+        items.add(new ItemEntity(tileToPixel(20), tileToPixel(14), "Battery"));
         return items;
+    }
+
+    private int tileToPixel(int tile) {
+        return tile * TileManager.TILE_SIZE;
     }
 
     @Override
@@ -277,38 +308,27 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void drawSubmarineRoom(Graphics2D g2) {
-        g2.setColor(new Color(26, 42, 56));
-        g2.fillRoundRect(20, 20, PANEL_WIDTH - 40, PANEL_HEIGHT - 40, 24, 24);
-
-        g2.setColor(new Color(56, 88, 108));
-        g2.drawRoundRect(20, 20, PANEL_WIDTH - 40, PANEL_HEIGHT - 40, 24, 24);
-
-        // draw floor guide lines so movement is easier to read
-        g2.setColor(new Color(36, 56, 74));
-        for (int y = 60; y < PANEL_HEIGHT - 40; y += 40) {
-            g2.drawLine(40, y, PANEL_WIDTH - 40, y);
-        }
+        tileManager.draw(g2);
     }
 
     private void drawTaskStations(Graphics2D g2) {
         g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
         for (TaskStation station : taskStations) {
             boolean near = gameState.isNearTaskStation(station.centerX(), station.centerY(), TASK_INTERACTION_RADIUS);
-            Color base = near ? new Color(88, 192, 120) : new Color(210, 156, 78);
+            Color base = near ? new Color(88, 192, 120) : new Color(208, 154, 84);
 
             g2.setColor(base);
             g2.fill(new RoundRectangle2D.Double(
-                    station.x, station.y, TASK_STATION_W, TASK_STATION_H, 14, 14
+                    station.x, station.y, TASK_STATION_W, TASK_STATION_H, 12, 12
             ));
 
-            g2.setColor(new Color(16, 20, 26));
-            g2.drawString("TASK", station.x + 21, station.y + 24);
+            g2.setColor(new Color(12, 18, 26));
+            g2.drawString("TASK", station.x + 22, station.y + 22);
             g2.drawString(station.requiredItem, station.x + 8, station.y + 40);
-            g2.drawString("+" + station.buoyancyReward, station.x + 25, station.y + 56);
+            g2.drawString("+" + station.buoyancyReward, station.x + 24, station.y + 56);
 
             if (near) {
-                // show prompt only when player can interact
-                g2.drawString("Press E", station.x + 10, station.y + TASK_STATION_H + 16);
+                g2.drawString("Press E", station.x + 8, station.y + TASK_STATION_H + 15);
             }
         }
     }
@@ -322,10 +342,10 @@ public class GamePanel extends JPanel implements Runnable {
                     ITEM_PICKUP_RADIUS
             );
 
-            g2.setColor(near ? new Color(255, 235, 122) : new Color(196, 208, 218));
+            g2.setColor(near ? new Color(255, 231, 112) : new Color(192, 208, 224));
             g2.fillOval(item.x, item.y, ITEM_SIZE, ITEM_SIZE);
 
-            g2.setColor(new Color(20, 28, 34));
+            g2.setColor(new Color(16, 22, 30));
             g2.drawString(item.name, item.x - 8, item.y - 4);
 
             if (near && !isHoldingItem()) {
@@ -346,21 +366,67 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void drawHud(Graphics2D g2) {
-        g2.setColor(new Color(240, 245, 250));
-        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 16));
+        int cardX = 20;
+        int cardY = 14;
+        int cardW = 980;
+        int cardH = 72;
 
-        String buoyancyText = "Buoyancy: " + gameState.getBuoyancy();
-        String objectiveText = "Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking";
-        String timeText = String.format("Time: %.1fs", gameState.getTimeRemainingSeconds());
-        String itemText = "Held Item: " + gameState.getHeldItem();
-        String drainText = String.format("Drain: %.1f/s", gameState.getBuoyancyDrainPerSecond());
+        g2.setPaint(new GradientPaint(cardX, cardY, new Color(9, 16, 28, 228), cardX, cardY + cardH, new Color(6, 12, 22, 214)));
+        g2.fillRoundRect(cardX, cardY, cardW, cardH, 18, 18);
+        g2.setColor(new Color(90, 123, 152));
+        g2.drawRoundRect(cardX, cardY, cardW, cardH, 18, 18);
 
-        g2.drawString(buoyancyText, 36, 34);
-        g2.drawString(timeText, 230, 34);
-        g2.drawString(drainText, 380, 34);
-        g2.drawString(itemText, 500, 34);
-        g2.drawString("WASD Move | E Interact | Q Drop", 36, 56);
-        g2.drawString(objectiveText, 36, 78);
+        g2.setColor(new Color(227, 239, 250));
+        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        g2.drawString("Buoyancy", cardX + 18, cardY + 22);
+        g2.drawString("Time", cardX + 196, cardY + 22);
+        g2.drawString("Drain", cardX + 312, cardY + 22);
+        g2.drawString("Held Item", cardX + 438, cardY + 22);
+
+        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 17));
+        g2.drawString(String.valueOf(gameState.getBuoyancy()), cardX + 18, cardY + 46);
+        g2.drawString(String.format("%.1fs", gameState.getTimeRemainingSeconds()), cardX + 196, cardY + 46);
+        g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), cardX + 312, cardY + 46);
+        g2.drawString(gameState.getHeldItem(), cardX + 438, cardY + 46);
+
+        g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        g2.setColor(new Color(171, 203, 225));
+        g2.drawString("WASD move   E interact/pickup   Q drop", cardX + 18, cardY + 63);
+        g2.drawString("Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking", cardX + 350, cardY + 63);
+
+        drawDepthGauge(g2, 1020, 14, 240, 72);
+    }
+
+    private void drawDepthGauge(Graphics2D g2, int x, int y, int w, int h) {
+        double ratio = Math.max(0.0, Math.min(1.0, gameState.getBuoyancy() / (double) gameState.getBuoyancyTarget()));
+        int innerX = x + 8;
+        int innerY = y + 28;
+        int innerW = w - 16;
+        int innerH = h - 36;
+
+        g2.setColor(new Color(8, 14, 24, 228));
+        g2.fillRoundRect(x, y, w, h, 16, 16);
+        g2.setColor(new Color(90, 123, 152));
+        g2.drawRoundRect(x, y, w, h, 16, 16);
+
+        g2.setColor(new Color(43, 58, 75));
+        g2.fillRoundRect(innerX, innerY, innerW, innerH, 8, 8);
+
+        int fillW = (int) Math.round(innerW * ratio);
+        if (fillW > 0) {
+            g2.setClip(innerX, innerY, fillW, innerH);
+            g2.setPaint(new GradientPaint(innerX, innerY + innerH, new Color(27, 99, 168), innerX, innerY, new Color(101, 208, 255)));
+            g2.fillRoundRect(innerX, innerY, innerW, innerH, 8, 8);
+            g2.setClip(null);
+        }
+
+        g2.setColor(new Color(226, 239, 250));
+        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        g2.drawString("Depth", x + 10, y + 15);
+        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+        int depthMeters = (int) Math.round((1.0 - ratio) * 300.0);
+        g2.drawString(depthMeters + " m", x + 10, y + h - 8);
+        g2.drawString("Surface", x + w - 58, y + h - 8);
     }
 
     private void drawRoundEndOverlay(Graphics2D g2) {
@@ -378,12 +444,12 @@ public class GamePanel extends JPanel implements Runnable {
         } else {
             title = "TIME UP";
         }
-        g2.drawString(title, PANEL_WIDTH / 2 - 170, PANEL_HEIGHT / 2 - 10);
+        g2.drawString(title, PANEL_WIDTH / 2 - 180, PANEL_HEIGHT / 2 - 10);
 
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));
         g2.drawString(
                 "Final Buoyancy: " + gameState.getBuoyancy(),
-                PANEL_WIDTH / 2 - 90,
+                PANEL_WIDTH / 2 - 96,
                 PANEL_HEIGHT / 2 + 28
         );
     }
