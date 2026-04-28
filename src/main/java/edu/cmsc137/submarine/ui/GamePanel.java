@@ -1,6 +1,8 @@
 package edu.cmsc137.submarine.ui;
 
 import edu.cmsc137.submarine.core.GameState;
+import edu.cmsc137.submarine.core.ItemEntity;
+import edu.cmsc137.submarine.core.ItemType;
 import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -30,7 +32,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private static final int ITEM_SIZE = 16;
     private static final double ITEM_PICKUP_RADIUS = 52.0;
-    private static final String NO_ITEM = "None";
+    private static final ItemType NO_ITEM = ItemType.NONE;
 
     private static final double INITIAL_TIME_SECONDS = 180.0;
     private static final int TARGET_FPS = 60;
@@ -167,6 +169,11 @@ public class GamePanel extends JPanel implements Runnable {
             dropHeldItemAtPlayer();
         }
 
+        // throw held item ahead in facing direction
+        if (inputHandler.consumeThrow()) {
+            throwHeldItemAhead();
+        }
+
         // interact tries pickup first, then station use
         if (inputHandler.consumeInteract()) {
             handleInteraction();
@@ -210,7 +217,7 @@ public class GamePanel extends JPanel implements Runnable {
         }
 
         ItemEntity pickedItem = worldItems.remove(index);
-        gameState.setHeldItem(pickedItem.name);
+        gameState.setHeldItemType(pickedItem.getItemType());
         return true;
     }
 
@@ -220,10 +227,11 @@ public class GamePanel extends JPanel implements Runnable {
             return;
         }
 
-        String held = gameState.getHeldItem();
-        if (station.requiredItem.equals(held)) {
+        ItemType held = gameState.getHeldItemType();
+        if (station.requiredItem == held) {
+            // reward buoyancy but do not consume the item
+            // player keeps the item and can use it again or drop it
             gameState.addBuoyancy(station.buoyancyReward);
-            gameState.setHeldItem(NO_ITEM);
         }
     }
 
@@ -234,19 +242,31 @@ public class GamePanel extends JPanel implements Runnable {
 
         int px = (int) Math.round(gameState.getPlayerX() + PLAYER_WIDTH * 0.5 - ITEM_SIZE * 0.5);
         int py = (int) Math.round(gameState.getPlayerY() + PLAYER_HEIGHT * 0.5 - ITEM_SIZE * 0.5);
-        worldItems.add(new ItemEntity(px, py, gameState.getHeldItem()));
-        gameState.setHeldItem(NO_ITEM);
+        worldItems.add(new ItemEntity(px, py, gameState.getHeldItemType()));
+        gameState.setHeldItemType(NO_ITEM);
+    }
+
+    private void throwHeldItemAhead() {
+        if (!isHoldingItem()) {
+            return;
+        }
+
+        // throw item using player's facing direction
+        ItemEntity tossed = gameState.tossHeldItem();
+        if (tossed != null) {
+            worldItems.add(tossed);
+        }
     }
 
     private boolean isHoldingItem() {
-        return !NO_ITEM.equals(gameState.getHeldItem());
+        return gameState.getHeldItemType() != NO_ITEM;
     }
 
     private int findNearbyItemIndex() {
         for (int i = 0; i < worldItems.size(); i++) {
             ItemEntity item = worldItems.get(i);
-            double itemCenterX = item.x + ITEM_SIZE * 0.5;
-            double itemCenterY = item.y + ITEM_SIZE * 0.5;
+            double itemCenterX = item.getX() + ITEM_SIZE * 0.5;
+            double itemCenterY = item.getY() + ITEM_SIZE * 0.5;
             if (gameState.isNearTaskStation(itemCenterX, itemCenterY, ITEM_PICKUP_RADIUS)) {
                 return i;
             }
@@ -266,21 +286,23 @@ public class GamePanel extends JPanel implements Runnable {
     private List<TaskStation> createTaskStations() {
         List<TaskStation> stations = new ArrayList<>();
         // command bridge
-        stations.add(new TaskStation("Nav Console", tileToPixel(5), tileToPixel(3), 18, "Sealant"));
+        stations.add(new TaskStation("Nav Console", tileToPixel(5), tileToPixel(3), 18, ItemType.WRENCH));
         // reactor room
-        stations.add(new TaskStation("Reactor Core", tileToPixel(22), tileToPixel(13), 20, "Battery"));
+        stations.add(new TaskStation("Reactor Core", tileToPixel(22), tileToPixel(13), 20, ItemType.HAND_PUMP));
         // engine room
-        stations.add(new TaskStation("Engine Console", tileToPixel(31), tileToPixel(8), 15, "Wrench"));
+        stations.add(new TaskStation("Engine Console", tileToPixel(31), tileToPixel(8), 15, ItemType.WELDER));
         return stations;
     }
 
     private List<ItemEntity> createInitialItems() {
         List<ItemEntity> items = new ArrayList<>();
         // storage / airlock room
-        items.add(new ItemEntity(tileToPixel(20), tileToPixel(4), "Wrench"));
-        items.add(new ItemEntity(tileToPixel(22), tileToPixel(4), "Sealant"));
+        items.add(new ItemEntity(tileToPixel(20), tileToPixel(4), ItemType.WRENCH));
+        items.add(new ItemEntity(tileToPixel(22), tileToPixel(4), ItemType.PATCH_PLATE));
+        items.add(new ItemEntity(tileToPixel(24), tileToPixel(4), ItemType.WELDER));
         // reactor room
-        items.add(new ItemEntity(tileToPixel(20), tileToPixel(14), "Battery"));
+        items.add(new ItemEntity(tileToPixel(20), tileToPixel(14), ItemType.HAND_PUMP));
+        items.add(new ItemEntity(tileToPixel(22), tileToPixel(14), ItemType.EXTINGUISHER));
         return items;
     }
 
@@ -324,7 +346,7 @@ public class GamePanel extends JPanel implements Runnable {
 
             g2.setColor(new Color(12, 18, 26));
             g2.drawString("TASK", station.x + 22, station.y + 22);
-            g2.drawString(station.requiredItem, station.x + 8, station.y + 40);
+            g2.drawString(formatItemLabel(station.requiredItem), station.x + 8, station.y + 40);
             g2.drawString("+" + station.buoyancyReward, station.x + 24, station.y + 56);
 
             if (near) {
@@ -337,19 +359,19 @@ public class GamePanel extends JPanel implements Runnable {
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
         for (ItemEntity item : worldItems) {
             boolean near = gameState.isNearTaskStation(
-                    item.x + ITEM_SIZE * 0.5,
-                    item.y + ITEM_SIZE * 0.5,
+                    item.getX() + ITEM_SIZE * 0.5,
+                    item.getY() + ITEM_SIZE * 0.5,
                     ITEM_PICKUP_RADIUS
             );
 
             g2.setColor(near ? new Color(255, 231, 112) : new Color(192, 208, 224));
-            g2.fillOval(item.x, item.y, ITEM_SIZE, ITEM_SIZE);
+            g2.fillOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
 
             g2.setColor(new Color(16, 22, 30));
-            g2.drawString(item.name, item.x - 8, item.y - 4);
+            g2.drawString(formatItemLabel(item.getItemType()), (int) Math.round(item.getX()) - 8, (int) Math.round(item.getY()) - 4);
 
             if (near && !isHoldingItem()) {
-                g2.drawString("Press E", item.x - 2, item.y + ITEM_SIZE + 14);
+                g2.drawString("Press E", (int) Math.round(item.getX()) - 2, (int) Math.round(item.getY()) + ITEM_SIZE + 14);
             }
         }
     }
@@ -387,7 +409,7 @@ public class GamePanel extends JPanel implements Runnable {
         g2.drawString(String.valueOf(gameState.getBuoyancy()), cardX + 18, cardY + 46);
         g2.drawString(String.format("%.1fs", gameState.getTimeRemainingSeconds()), cardX + 196, cardY + 46);
         g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), cardX + 312, cardY + 46);
-        g2.drawString(gameState.getHeldItem(), cardX + 438, cardY + 46);
+        g2.drawString(formatItemLabel(gameState.getHeldItemType()), cardX + 438, cardY + 46);
 
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         g2.setColor(new Color(171, 203, 225));
@@ -459,14 +481,14 @@ public class GamePanel extends JPanel implements Runnable {
         private final int x;
         private final int y;
         private final int buoyancyReward;
-        private final String requiredItem;
+        private final ItemType requiredItem;
 
-        private TaskStation(String name, int x, int y, int buoyancyReward, String requiredItem) {
+        private TaskStation(String name, int x, int y, int buoyancyReward, ItemType requiredItem) {
             this.name = name;
             this.x = x;
             this.y = y;
             this.buoyancyReward = buoyancyReward;
-            this.requiredItem = requiredItem;
+            this.requiredItem = requiredItem == null ? ItemType.NONE : requiredItem;
         }
 
         private double centerX() {
@@ -478,15 +500,20 @@ public class GamePanel extends JPanel implements Runnable {
         }
     }
 
-    private static final class ItemEntity {
-        private final int x;
-        private final int y;
-        private final String name;
-
-        private ItemEntity(int x, int y, String name) {
-            this.x = x;
-            this.y = y;
-            this.name = name;
+    private String formatItemLabel(ItemType itemType) {
+        if (itemType == null || itemType == ItemType.NONE) {
+            return "none";
         }
+
+        String raw = itemType.name().toLowerCase();
+        String[] parts = raw.split("_");
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                builder.append(' ');
+            }
+            builder.append(parts[i].charAt(0)).append(parts[i].substring(1));
+        }
+        return builder.toString();
     }
 }

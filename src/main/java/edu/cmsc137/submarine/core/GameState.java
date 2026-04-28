@@ -17,9 +17,7 @@ public class GameState {
     private double buoyancyDrainAccumulator;
 
     // local player state
-    private double playerX;
-    private double playerY;
-    private String heldItem;
+    private final Player player;
 
     public GameState(int worldWidth, int worldHeight, double initialTimeSeconds) {
         this(worldWidth, worldHeight, initialTimeSeconds, 50, 100, 1.2);
@@ -43,9 +41,7 @@ public class GameState {
         this.buoyancyDrainAccumulator = 0.0;
 
         // spawn roughly at the center
-        this.playerX = worldWidth * 0.5;
-        this.playerY = worldHeight * 0.5;
-        this.heldItem = "None";
+        this.player = new Player(worldWidth * 0.5, worldHeight * 0.5, 0.0);
     }
 
     public void update(double deltaSeconds) {
@@ -71,22 +67,19 @@ public class GameState {
 
     public void movePlayer(double dx, double dy, int playerWidth, int playerHeight) {
         // apply movement first
-        playerX += dx;
-        playerY += dy;
+        double nextX = player.getX() + dx;
+        double nextY = player.getY() + dy;
 
         // clamp player to world bounds
-        double maxX = worldWidth - playerWidth;
-        double maxY = worldHeight - playerHeight;
-        playerX = clamp(playerX, 0.0, maxX);
-        playerY = clamp(playerY, 0.0, maxY);
+        double maxX = Math.max(0, worldWidth - playerWidth);
+        double maxY = Math.max(0, worldHeight - playerHeight);
+        player.setPosition(clamp(nextX, 0.0, maxX), clamp(nextY, 0.0, maxY));
     }
 
     public boolean isNearTaskStation(double stationCenterX, double stationCenterY, double interactionRadius) {
         // distance check uses squared values to avoid sqrt cost
-        double playerCenterX = playerX;
-        double playerCenterY = playerY;
-        double dx = playerCenterX - stationCenterX;
-        double dy = playerCenterY - stationCenterY;
+        double dx = player.getX() - stationCenterX;
+        double dy = player.getY() - stationCenterY;
         return (dx * dx + dy * dy) <= (interactionRadius * interactionRadius);
     }
 
@@ -140,30 +133,29 @@ public class GameState {
     }
 
     public double getPlayerX() {
-        return playerX;
+        return player.getX();
     }
 
     public double getPlayerY() {
-        return playerY;
+        return player.getY();
     }
 
     public String getHeldItem() {
-        return heldItem;
+        return player.getCurrentItem().name();
     }
 
     public void setHeldItem(String heldItem) {
-        this.heldItem = heldItem;
+        this.player.setCurrentItem(parseItemType(heldItem));
     }
 
     public void setPlayerPosition(double x, double y) {
-        this.playerX = clamp(x, 0.0, worldWidth);
-        this.playerY = clamp(y, 0.0, worldHeight);
+        this.player.setPosition(clamp(x, 0.0, worldWidth), clamp(y, 0.0, worldHeight));
     }
 
     public Rectangle getPlayerHitbox(int playerWidth, int playerHeight) {
         return new Rectangle(
-                (int) Math.round(playerX),
-                (int) Math.round(playerY),
+                (int) Math.round(player.getX()),
+                (int) Math.round(player.getY()),
                 playerWidth,
                 playerHeight
         );
@@ -171,11 +163,49 @@ public class GameState {
 
     public Rectangle getProjectedPlayerHitbox(double dx, double dy, int playerWidth, int playerHeight) {
         return new Rectangle(
-                (int) Math.round(playerX + dx),
-                (int) Math.round(playerY + dy),
+                (int) Math.round(player.getX() + dx),
+                (int) Math.round(player.getY() + dy),
                 playerWidth,
                 playerHeight
         );
+    }
+
+    public Player getPlayer() {
+        return player;
+    }
+
+    public ItemEntity tossHeldItem() {
+        return player.tossItem();
+    }
+
+
+
+    public ItemType getHeldItemType() {
+        return player.getCurrentItem();
+    }
+
+    public void setHeldItemType(ItemType itemType) {
+        player.setCurrentItem(itemType);
+    }
+
+    public boolean isPumping() {
+        return player.isPumping();
+    }
+
+    public void setPumping(boolean pumping) {
+        player.setPumping(pumping);
+    }
+
+    private ItemType parseItemType(String itemName) {
+        if (itemName == null || itemName.isBlank()) {
+            return ItemType.NONE;
+        }
+
+        try {
+            return ItemType.valueOf(itemName);
+        } catch (IllegalArgumentException ex) {
+            return ItemType.NONE;
+        }
     }
 
     private static double clamp(double value, double min, double max) {
