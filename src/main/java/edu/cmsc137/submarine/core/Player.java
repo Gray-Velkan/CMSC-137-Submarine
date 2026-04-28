@@ -107,6 +107,11 @@ public class Player {
         return facingY;
     }
 
+    public void setFacingDirection(int x, int y) {
+        this.facingX = x;
+        this.facingY = y;
+    }
+
     public double getBaseSpeed() {
         return baseSpeed;
     }

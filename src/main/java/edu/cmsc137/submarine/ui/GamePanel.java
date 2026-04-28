@@ -158,6 +158,8 @@ public class GamePanel extends JPanel implements Runnable {
             double length = Math.sqrt(dx * dx + dy * dy);
             dx /= length;
             dy /= length;
+            // update facing direction based on wasd input
+            updatePlayerFacing((int) Math.round(dx), (int) Math.round(dy));
         }
 
         double moveX = dx * PLAYER_SPEED_PX_PER_SEC * deltaSeconds;
@@ -178,6 +180,10 @@ public class GamePanel extends JPanel implements Runnable {
         if (inputHandler.consumeInteract()) {
             handleInteraction();
         }
+    }
+
+    private void updatePlayerFacing(int facingX, int facingY) {
+        gameState.getPlayer().setFacingDirection(facingX, facingY);
     }
 
     private void movePlayerWithTileCollision(double moveX, double moveY) {
@@ -364,8 +370,14 @@ public class GamePanel extends JPanel implements Runnable {
                     ITEM_PICKUP_RADIUS
             );
 
-            g2.setColor(near ? new Color(255, 231, 112) : new Color(192, 208, 224));
+            // draw item with bright highlight when nearby
+            g2.setColor(near ? new Color(255, 240, 120) : getItemColor(item.getItemType()));
             g2.fillOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
+
+            // add dark outline for visibility
+            g2.setColor(new Color(32, 40, 50));
+            g2.setStroke(new java.awt.BasicStroke(1.5f));
+            g2.drawOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
 
             g2.setColor(new Color(16, 22, 30));
             g2.drawString(formatItemLabel(item.getItemType()), (int) Math.round(item.getX()) - 8, (int) Math.round(item.getY()) - 4);
@@ -374,6 +386,18 @@ public class GamePanel extends JPanel implements Runnable {
                 g2.drawString("Press E", (int) Math.round(item.getX()) - 2, (int) Math.round(item.getY()) + ITEM_SIZE + 14);
             }
         }
+    }
+
+    private Color getItemColor(ItemType itemType) {
+        // give each item type a distinct color for visibility
+        return switch (itemType) {
+            case PATCH_PLATE -> new Color(220, 100, 100);
+            case WELDER -> new Color(220, 150, 80);
+            case HAND_PUMP -> new Color(100, 180, 220);
+            case EXTINGUISHER -> new Color(200, 80, 220);
+            case WRENCH -> new Color(150, 150, 150);
+            case NONE -> new Color(100, 100, 100);
+        };
     }
 
     private void drawPlayer(Graphics2D g2) {
@@ -413,7 +437,7 @@ public class GamePanel extends JPanel implements Runnable {
 
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         g2.setColor(new Color(171, 203, 225));
-        g2.drawString("WASD move   E interact/pickup   Q drop", cardX + 18, cardY + 63);
+        g2.drawString("WASD move   E interact/pickup   Q drop   T throw", cardX + 18, cardY + 63);
         g2.drawString("Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking", cardX + 350, cardY + 63);
 
         drawDepthGauge(g2, 1020, 14, 240, 72);
