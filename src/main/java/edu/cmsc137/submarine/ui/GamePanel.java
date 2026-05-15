@@ -1,5 +1,6 @@
 package edu.cmsc137.submarine.ui;
 
+import edu.cmsc137.submarine.core.AudioPlayer;
 import edu.cmsc137.submarine.core.GameState;
 import edu.cmsc137.submarine.core.ItemEntity;
 import edu.cmsc137.submarine.core.ItemType;
@@ -44,7 +45,7 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int TARGET_FPS = 60;
 
     private final TileManager tileManager;
-    private final GameState gameState;
+    private GameState gameState;
     private final InputHandler inputHandler;
     private final List<TaskStation> taskStations;
     private final List<ItemEntity> worldItems;
@@ -53,7 +54,7 @@ public class GamePanel extends JPanel implements Runnable {
     private volatile boolean running;
 
     public enum ScreenState {
-        TITLE, MAIN_MENU, GAME
+        TITLE, MAIN_MENU, SETTINGS, LOADING, GAME, PAUSED
     }
 
     private Image titleBgImage;
@@ -64,6 +65,26 @@ public class GamePanel extends JPanel implements Runnable {
     private Image playHoverImage;
     private Image settingsBtnImage;
     private Image settingsHoverImage;
+    private Image settingsPageBgImage;
+    private Image backBtnImage;
+    private Image musicOnBtnImage;
+    private Image musicOffBtnImage;
+    private Image sfxOnBtnImage;
+    private Image sfxOffBtnImage;
+    private Image rulesBtnImage;
+    private Image mapBgImage;
+    private Image loadingGifImage;
+    private Image navbarImage;
+    private Image pauseBtnImage;
+    private Image pauseOverlayImage;
+    private Image resumeBtnImage;
+    private Image restartBtnImage;
+    private Image quitBtnImage;
+    private AudioPlayer menuMusic;
+    private AudioPlayer gameMusic;
+    private double loadingTimer = 0.0;
+    private boolean isMusicOn = true;
+    private boolean isSfxOn = true;
     private ScreenState currentScreen = ScreenState.TITLE;
     private boolean isEnterHovered = false;
     private boolean isPlayHovered = false;
@@ -88,12 +109,36 @@ public class GamePanel extends JPanel implements Runnable {
             this.playHoverImage = ImageIO.read(new File("assets/play_hover.png"));
             this.settingsBtnImage = ImageIO.read(new File("assets/settings.png"));
             this.settingsHoverImage = ImageIO.read(new File("assets/settings_hover.png"));
-        } catch (IOException e) {
-            System.err.println("Failed to load images");
-            e.printStackTrace();
-        }
+            this.settingsPageBgImage = ImageIO.read(new File("assets/settings_page.png"));
+            this.backBtnImage = ImageIO.read(new File("assets/back_button1.png"));
+            this.musicOnBtnImage = ImageIO.read(new File("assets/music_on.png"));
+            this.musicOffBtnImage = ImageIO.read(new File("assets/music_off.png"));
+                this.sfxOnBtnImage = ImageIO.read(new File("assets/sfx_on.png"));
+                this.sfxOffBtnImage = ImageIO.read(new File("assets/sfx_off.png"));
+                this.rulesBtnImage = ImageIO.read(new File("assets/rules.png"));
+                this.mapBgImage = ImageIO.read(new File("assets/map.png"));
+            } catch (IOException e) {
+                System.err.println("Failed to load images");
+                e.printStackTrace();
+            }
 
-        addMouseListener(new MouseAdapter() {
+            // Use ImageIcon to support animated GIF
+            this.loadingGifImage = new javax.swing.ImageIcon("assets/loading.gif").getImage();
+            // Use ImageIcon for navbar to avoid ImageIO issues with specific PNG formats
+            this.navbarImage = new javax.swing.ImageIcon("assets/navbar.png").getImage();
+            this.pauseBtnImage = new javax.swing.ImageIcon("assets/pause_button.png").getImage();
+            this.pauseOverlayImage = new javax.swing.ImageIcon("assets/pause.png").getImage();
+            this.resumeBtnImage = new javax.swing.ImageIcon("assets/resume.png").getImage();
+            this.restartBtnImage = new javax.swing.ImageIcon("assets/restart.png").getImage();
+            this.quitBtnImage = new javax.swing.ImageIcon("assets/quit.png").getImage();
+
+            this.menuMusic = new AudioPlayer("sound/menu_bgmusic.wav");
+            this.gameMusic = new AudioPlayer("sound/gameplay_bgmusic.wav");
+            if (isMusicOn) {
+                menuMusic.playLooping(4_000_000L); // start from 4 seconds
+            }
+
+            addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.getButton() == MouseEvent.BUTTON1) {
@@ -111,9 +156,85 @@ public class GamePanel extends JPanel implements Runnable {
                         // Play button tight text bounds
                         if (logicalX >= 98 && logicalX <= 379 &&
                                 logicalY >= 410 && logicalY <= 488) {
-                            currentScreen = ScreenState.GAME;
+                            resetGame();
+                            currentScreen = ScreenState.LOADING;
+                            loadingTimer = 0.0;
                         }
-                        // Settings button bounds (does nothing for now)
+                        // Settings button tight text bounds
+                        else if (logicalX >= 98 && logicalX <= 624 &&
+                                logicalY >= 529 && logicalY <= 607) {
+                            currentScreen = ScreenState.SETTINGS;
+                        }
+                    } else if (currentScreen == ScreenState.SETTINGS) {
+                        if (logicalX >= 220.6 && logicalX <= (220.6 + 84.7) &&
+                                logicalY >= 132.7 && logicalY <= (132.7 + 84.7)) {
+                            currentScreen = ScreenState.MAIN_MENU;
+                        }
+
+                        if (logicalX >= 356.4 && logicalX <= (356.4 + 123.3) &&
+                                logicalY >= 245.6 && logicalY <= (245.6 + 93.4)) {
+                            isMusicOn = !isMusicOn;
+                            if (isMusicOn) {
+                                menuMusic.playLooping(4_000_000L);
+                            } else {
+                                menuMusic.stop();
+                            }
+                            repaint();
+                        }
+
+                        if (logicalX >= 578.3 && logicalX <= (578.3 + 123.3) &&
+                                logicalY >= 247.4 && logicalY <= (247.4 + 93.4)) {
+                            isSfxOn = !isSfxOn;
+                            repaint();
+                        }
+                    } else if (currentScreen == ScreenState.GAME) {
+                        if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
+                                logicalY >= 54.5 && logicalY <= (54.5 + 84.9)) {
+                            currentScreen = ScreenState.PAUSED;
+                            repaint();
+                        }
+                    } else if (currentScreen == ScreenState.PAUSED) {
+                        // Resume
+                        if (logicalX >= 447.8 && logicalX <= (447.8 + 384.4) &&
+                                logicalY >= 340.5 && logicalY <= (340.5 + 83.2)) {
+                            currentScreen = ScreenState.GAME;
+                            repaint();
+                        }
+                        // Restart
+                        else if (logicalX >= 447.8 && logicalX <= (447.8 + 384.4) &&
+                                logicalY >= 456.2 && logicalY <= (456.2 + 83.2)) {
+                            resetGame();
+                            currentScreen = ScreenState.LOADING;
+                            loadingTimer = 0.0;
+                            gameMusic.stop();
+                            if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                            repaint();
+                        }
+                        // Quit
+                        else if (logicalX >= 447.8 && logicalX <= (447.8 + 384.4) &&
+                                logicalY >= 565.9 && logicalY <= (565.9 + 83.2)) {
+                            currentScreen = ScreenState.MAIN_MENU;
+                            gameMusic.stop();
+                            if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                            repaint();
+                        }
+                        // Music ON/OFF
+                        else if (logicalX >= 467.4 && logicalX <= (467.4 + 123.3) &&
+                                logicalY >= 217.3 && logicalY <= (217.3 + 93.4)) {
+                            isMusicOn = !isMusicOn;
+                            if (isMusicOn) {
+                                gameMusic.playLooping(0);
+                            } else {
+                                gameMusic.stop();
+                            }
+                            repaint();
+                        }
+                        // SFX ON/OFF
+                        else if (logicalX >= 689.3 && logicalX <= (689.3 + 123.3) &&
+                                logicalY >= 219.1 && logicalY <= (219.1 + 93.4)) {
+                            isSfxOn = !isSfxOn;
+                            repaint();
+                        }
                     }
                 }
             }
@@ -169,6 +290,19 @@ public class GamePanel extends JPanel implements Runnable {
         });
     }
 
+    private void resetGame() {
+        this.gameState = new GameState(
+                tileManager.getMapWidthPixels(),
+                tileManager.getMapHeightPixels(),
+                INITIAL_TIME_SECONDS);
+        this.worldItems.clear();
+        this.worldItems.addAll(createInitialItems());
+        this.taskStations.clear();
+        this.taskStations.addAll(createTaskStations());
+        gameState.setPlayerPosition(tileToPixel(12) + 4, tileToPixel(13) + 3);
+        inputHandler.consumeInteract();
+    }
+
     public GameState getGameState() {
         return gameState;
     }
@@ -205,7 +339,15 @@ public class GamePanel extends JPanel implements Runnable {
             accumulator += elapsedNanos / 1_000_000_000.0;
 
             while (accumulator >= fixedDeltaSeconds) {
-                if (currentScreen != ScreenState.GAME) {
+                if (currentScreen == ScreenState.LOADING) {
+                    loadingTimer += fixedDeltaSeconds;
+                    if (loadingTimer >= 5.0) {
+                        currentScreen = ScreenState.GAME;
+                        menuMusic.stop();
+                        if (isMusicOn) gameMusic.playLooping(0);
+                    }
+                    inputHandler.consumeInteract(); // Clear queued input
+                } else if (currentScreen != ScreenState.GAME) {
                     inputHandler.consumeInteract(); // Clear queued input
                 } else {
                     processInput(fixedDeltaSeconds);
@@ -443,7 +585,7 @@ public class GamePanel extends JPanel implements Runnable {
             if (mainMenuBgImage != null) {
                 g2.drawImage(mainMenuBgImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
             }
-            
+
             if (playBtnImage != null) {
                 if (isPlayHovered && playHoverImage != null) {
                     g2.drawImage(playHoverImage, 62, 400, 418, 180, null);
@@ -451,7 +593,7 @@ public class GamePanel extends JPanel implements Runnable {
                     g2.drawImage(playBtnImage, 85, 390, 311, 115, null);
                 }
             }
-            
+
             if (settingsBtnImage != null) {
                 if (isSettingsHovered && settingsHoverImage != null) {
                     g2.drawImage(settingsHoverImage, 94, 516, 607, 158, null);
@@ -462,9 +604,49 @@ public class GamePanel extends JPanel implements Runnable {
 
             g2.dispose();
             return;
+        } else if (currentScreen == ScreenState.SETTINGS) {
+            if (settingsPageBgImage != null) {
+                g2.drawImage(settingsPageBgImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            }
+            if (backBtnImage != null) {
+                g2.drawImage(backBtnImage, (int) Math.round(220.6), (int) Math.round(132.7), (int) Math.round(84.7),
+                        (int) Math.round(84.7), null);
+            }
+            Image musicImg = isMusicOn ? musicOnBtnImage : musicOffBtnImage;
+            if (musicImg != null) {
+                g2.drawImage(musicImg, (int) Math.round(356.4), (int) Math.round(245.6), (int) Math.round(123.3),
+                        (int) Math.round(93.4), null);
+            }
+            Image sfxImg = isSfxOn ? sfxOnBtnImage : sfxOffBtnImage;
+            if (sfxImg != null) {
+                g2.drawImage(sfxImg, (int) Math.round(578.3), (int) Math.round(247.4), (int) Math.round(123.3),
+                        (int) Math.round(93.4), null);
+            }
+            if (rulesBtnImage != null) {
+                g2.drawImage(rulesBtnImage, (int) Math.round(800.7), (int) Math.round(245.6), (int) Math.round(123.3),
+                        (int) Math.round(93.4), null);
+            }
+            g2.dispose();
+            return;
+        } else if (currentScreen == ScreenState.LOADING) {
+            if (loadingGifImage != null) {
+                // Pass 'this' as the ImageObserver so the GIF animates automatically
+                g2.drawImage(loadingGifImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, this);
+            } else {
+                g2.setColor(Color.BLACK);
+                g2.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
+                g2.setColor(Color.WHITE);
+                g2.drawString("LOADING...", PANEL_WIDTH / 2 - 50, PANEL_HEIGHT / 2);
+            }
+            g2.dispose();
+            return;
         }
 
-        drawSubmarineRoom(g2);
+        if (mapBgImage != null) {
+            g2.drawImage(mapBgImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+        } else {
+            drawSubmarineRoom(g2); // Fallback to tile manager if map is missing
+        }
         drawTaskStations(g2);
         drawItems(g2);
         drawPlayer(g2);
@@ -472,6 +654,33 @@ public class GamePanel extends JPanel implements Runnable {
 
         if (gameState.isRoundOver()) {
             drawRoundEndOverlay(g2);
+        } else if (currentScreen == ScreenState.PAUSED) {
+            g2.setColor(new Color(0, 0, 0, 150));
+            g2.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
+            if (pauseOverlayImage != null) {
+                g2.drawImage(pauseOverlayImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            }
+            
+            if (resumeBtnImage != null) {
+                g2.drawImage(resumeBtnImage, (int) Math.round(447.8), (int) Math.round(340.5), (int) Math.round(384.4), (int) Math.round(83.2), null);
+            }
+            if (restartBtnImage != null) {
+                g2.drawImage(restartBtnImage, (int) Math.round(447.8), (int) Math.round(456.2), (int) Math.round(384.4), (int) Math.round(83.2), null);
+            }
+            if (quitBtnImage != null) {
+                g2.drawImage(quitBtnImage, (int) Math.round(447.8), (int) Math.round(565.9), (int) Math.round(384.4), (int) Math.round(83.2), null);
+            }
+            
+            Image musicImg = isMusicOn ? musicOnBtnImage : musicOffBtnImage;
+            if (musicImg != null) {
+                g2.drawImage(musicImg, (int) Math.round(467.4), (int) Math.round(217.3), (int) Math.round(123.3),
+                        (int) Math.round(93.4), null);
+            }
+            Image sfxImg = isSfxOn ? sfxOnBtnImage : sfxOffBtnImage;
+            if (sfxImg != null) {
+                g2.drawImage(sfxImg, (int) Math.round(689.3), (int) Math.round(219.1), (int) Math.round(123.3),
+                        (int) Math.round(93.4), null);
+            }
         }
 
         g2.dispose();
@@ -554,50 +763,49 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void drawHud(Graphics2D g2) {
-        int cardX = 20;
-        int cardY = 14;
-        int cardW = 980;
-        int cardH = 72;
+        if (navbarImage != null) {
+            g2.drawImage(navbarImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+        }
 
-        g2.setPaint(new GradientPaint(cardX, cardY, new Color(9, 16, 28, 228), cardX, cardY + cardH,
-                new Color(6, 12, 22, 214)));
-        g2.fillRoundRect(cardX, cardY, cardW, cardH, 18, 18);
-        g2.setColor(new Color(90, 123, 152));
-        g2.drawRoundRect(cardX, cardY, cardW, cardH, 18, 18);
+        g2.setColor(new Color(240, 230, 140)); // A nice yellowish color for numbers
+        g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 18));
 
-        g2.setColor(new Color(227, 239, 250));
-        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
-        g2.drawString("Buoyancy", cardX + 18, cardY + 22);
-        g2.drawString("Time", cardX + 196, cardY + 22);
-        g2.drawString("Drain", cardX + 312, cardY + 22);
-        g2.drawString("Held Item", cardX + 438, cardY + 22);
+        // Buoyancy: "48/100" format at bottom-left of Buoyancy box
+        g2.drawString(gameState.getBuoyancy() + "/" + gameState.getBuoyancyTarget(), (int) Math.round(113.3),
+                (int) Math.round(130.0));
 
-        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 17));
-        g2.drawString(String.valueOf(gameState.getBuoyancy()), cardX + 18, cardY + 46);
-        g2.drawString(String.format("%.1fs", gameState.getTimeRemainingSeconds()), cardX + 196, cardY + 46);
-        g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), cardX + 312, cardY + 46);
-        g2.drawString(formatItemLabel(gameState.getHeldItemType()), cardX + 438, cardY + 46);
+        // Time: Format as whole number centered below the clock icon
+        int totalSeconds = (int) Math.max(0, gameState.getTimeRemainingSeconds());
+        g2.drawString(String.valueOf(totalSeconds), (int) Math.round(286.8), (int) Math.round(120.0));
 
-        g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        g2.setColor(new Color(171, 203, 225));
-        g2.drawString("WASD move   E interact/pickup   Q drop   T throw", cardX + 18, cardY + 63);
-        g2.drawString("Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking", cardX + 350,
-                cardY + 63);
+        // Drain: Bottom-right below the pipe
+        g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), (int) Math.round(357.0),
+                (int) Math.round(130.0));
 
-        drawDepthGauge(g2, 1020, 14, 240, 72);
+        // Held Item: Centered below the wrench box
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 15));
+        g2.drawString(formatItemLabel(gameState.getHeldItemType()).toUpperCase(), (int) Math.round(451.9),
+                (int) Math.round(110.0));
+
+        // Draw the depth gauge over the DEPTH box
+        drawDepthGauge(g2, (int) Math.round(881.3), (int) Math.round(100.9), (int) Math.round(161.0),
+                (int) Math.round(33.5));
+
+        // Draw pause button
+        if (pauseBtnImage != null) {
+            // Sizing down to fit the navbar
+            g2.drawImage(pauseBtnImage, (int) Math.round(1113.9), (int) Math.round(54.5), (int) Math.round(84.9),
+                    (int) Math.round(84.9), null);
+        }
     }
 
     private void drawDepthGauge(Graphics2D g2, int x, int y, int w, int h) {
         double ratio = Math.max(0.0, Math.min(1.0, gameState.getBuoyancy() / (double) gameState.getBuoyancyTarget()));
         int innerX = x + 8;
-        int innerY = y + 28;
+        int innerY = y + 8;
         int innerW = w - 16;
-        int innerH = h - 36;
-
-        g2.setColor(new Color(8, 14, 24, 228));
-        g2.fillRoundRect(x, y, w, h, 16, 16);
-        g2.setColor(new Color(90, 123, 152));
-        g2.drawRoundRect(x, y, w, h, 16, 16);
+        int innerH = h - 16;
 
         g2.setColor(new Color(43, 58, 75));
         g2.fillRoundRect(innerX, innerY, innerW, innerH, 8, 8);
@@ -612,12 +820,10 @@ public class GamePanel extends JPanel implements Runnable {
         }
 
         g2.setColor(new Color(226, 239, 250));
-        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-        g2.drawString("Depth", x + 10, y + 15);
-        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+        g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 11));
         int depthMeters = (int) Math.round((1.0 - ratio) * 300.0);
-        g2.drawString(depthMeters + " m", x + 10, y + h - 8);
-        g2.drawString("Surface", x + w - 58, y + h - 8);
+        g2.drawString(depthMeters + " m", x + 10, y);
+        g2.drawString("Surface", x + w - 58, y);
     }
 
     private void drawRoundEndOverlay(Graphics2D g2) {
