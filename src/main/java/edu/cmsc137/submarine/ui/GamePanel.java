@@ -5,6 +5,10 @@ import edu.cmsc137.submarine.core.ItemEntity;
 import edu.cmsc137.submarine.core.ItemType;
 import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
+import java.awt.Image;
+import java.io.File;
+import java.io.IOException;
+import javax.imageio.ImageIO;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GradientPaint;
@@ -13,6 +17,8 @@ import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.HierarchyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,21 +52,110 @@ public class GamePanel extends JPanel implements Runnable {
     private Thread gameThread;
     private volatile boolean running;
 
+    public enum ScreenState {
+        TITLE, MAIN_MENU, GAME
+    }
+
+    private Image titleBgImage;
+    private Image enterBtnImage;
+    private Image enterHoverImage;
+    private Image mainMenuBgImage;
+    private Image playBtnImage;
+    private Image playHoverImage;
+    private Image settingsBtnImage;
+    private Image settingsHoverImage;
+    private ScreenState currentScreen = ScreenState.TITLE;
+    private boolean isEnterHovered = false;
+    private boolean isPlayHovered = false;
+    private boolean isSettingsHovered = false;
+
     public GamePanel() {
         this.tileManager = new TileManager();
         this.gameState = new GameState(
                 tileManager.getMapWidthPixels(),
                 tileManager.getMapHeightPixels(),
-                INITIAL_TIME_SECONDS
-        );
+                INITIAL_TIME_SECONDS);
         this.inputHandler = new InputHandler();
         this.taskStations = createTaskStations();
         this.worldItems = createInitialItems();
 
+        try {
+            this.titleBgImage = ImageIO.read(new File("assets/title page.png"));
+            this.enterBtnImage = ImageIO.read(new File("assets/enter.png"));
+            this.enterHoverImage = ImageIO.read(new File("assets/enter_hover.png"));
+            this.mainMenuBgImage = ImageIO.read(new File("assets/main menu.png"));
+            this.playBtnImage = ImageIO.read(new File("assets/play.png"));
+            this.playHoverImage = ImageIO.read(new File("assets/play_hover.png"));
+            this.settingsBtnImage = ImageIO.read(new File("assets/settings.png"));
+            this.settingsHoverImage = ImageIO.read(new File("assets/settings_hover.png"));
+        } catch (IOException e) {
+            System.err.println("Failed to load images");
+            e.printStackTrace();
+        }
+
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.getButton() == MouseEvent.BUTTON1) {
+                    double scaleX = (double) getWidth() / PANEL_WIDTH;
+                    double scaleY = (double) getHeight() / PANEL_HEIGHT;
+                    double logicalX = e.getX() / scaleX;
+                    double logicalY = e.getY() / scaleY;
+
+                    if (currentScreen == ScreenState.TITLE) {
+                        if (logicalX >= 464.55 && logicalX <= (464.55 + 350.9) &&
+                                logicalY >= 515.8 && logicalY <= (515.8 + 145.5)) {
+                            currentScreen = ScreenState.MAIN_MENU;
+                        }
+                    } else if (currentScreen == ScreenState.MAIN_MENU) {
+                        // Play button tight text bounds
+                        if (logicalX >= 98 && logicalX <= 379 &&
+                                logicalY >= 410 && logicalY <= 488) {
+                            currentScreen = ScreenState.GAME;
+                        }
+                        // Settings button bounds (does nothing for now)
+                    }
+                }
+            }
+        });
+
+        addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                double scaleX = (double) getWidth() / PANEL_WIDTH;
+                double scaleY = (double) getHeight() / PANEL_HEIGHT;
+                double logicalX = e.getX() / scaleX;
+                double logicalY = e.getY() / scaleY;
+
+                if (currentScreen == ScreenState.TITLE) {
+                    boolean hovered = logicalX >= 464.55 && logicalX <= (464.55 + 350.9) &&
+                            logicalY >= 515.8 && logicalY <= (515.8 + 145.5);
+
+                    if (hovered != isEnterHovered) {
+                        isEnterHovered = hovered;
+                        repaint();
+                    }
+                } else if (currentScreen == ScreenState.MAIN_MENU) {
+                    boolean playHovered = logicalX >= 98 && logicalX <= 379 &&
+                            logicalY >= 410 && logicalY <= 488;
+                    boolean settingsHovered = logicalX >= 98 && logicalX <= 624 &&
+                            logicalY >= 529 && logicalY <= 607;
+
+                    if (playHovered != isPlayHovered || settingsHovered != isSettingsHovered) {
+                        isPlayHovered = playHovered;
+                        isSettingsHovered = settingsHovered;
+                        repaint();
+                    }
+                }
+            }
+        });
+
         // place player on central hallway floor tile
         gameState.setPlayerPosition(tileToPixel(12) + 4, tileToPixel(13) + 3);
 
-        setPreferredSize(new Dimension(PANEL_WIDTH, PANEL_HEIGHT));
+        // Set the window size smaller (1024x614) while keeping the 1280x768 logical
+        // resolution
+        setPreferredSize(new Dimension(1024, 614));
         setBackground(new Color(7, 14, 22));
         setFocusable(true);
         addKeyListener(inputHandler);
@@ -109,10 +204,13 @@ public class GamePanel extends JPanel implements Runnable {
             // accumulate elapsed time and consume it in fixed-size updates
             accumulator += elapsedNanos / 1_000_000_000.0;
 
-            // fixed-step simulation keeps gameplay deterministic and server-ready
             while (accumulator >= fixedDeltaSeconds) {
-                processInput(fixedDeltaSeconds);
-                updateState(fixedDeltaSeconds);
+                if (currentScreen != ScreenState.GAME) {
+                    inputHandler.consumeInteract(); // Clear queued input
+                } else {
+                    processInput(fixedDeltaSeconds);
+                    updateState(fixedDeltaSeconds);
+                }
                 accumulator -= fixedDeltaSeconds;
             }
 
@@ -322,6 +420,50 @@ public class GamePanel extends JPanel implements Runnable {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+        // Scale everything to fit the current panel size
+        double scaleX = (double) getWidth() / PANEL_WIDTH;
+        double scaleY = (double) getHeight() / PANEL_HEIGHT;
+        g2.scale(scaleX, scaleY);
+
+        if (currentScreen == ScreenState.TITLE) {
+            if (titleBgImage != null) {
+                g2.drawImage(titleBgImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            }
+            if (enterBtnImage != null) {
+                int btnX = (int) Math.round(464.55);
+                int btnY = (int) Math.round(515.8);
+                int btnW = (int) Math.round(350.9);
+                int btnH = (int) Math.round(145.5);
+                Image imgToDraw = (isEnterHovered && enterHoverImage != null) ? enterHoverImage : enterBtnImage;
+                g2.drawImage(imgToDraw, btnX, btnY, btnW, btnH, null);
+            }
+            g2.dispose();
+            return;
+        } else if (currentScreen == ScreenState.MAIN_MENU) {
+            if (mainMenuBgImage != null) {
+                g2.drawImage(mainMenuBgImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            }
+            
+            if (playBtnImage != null) {
+                if (isPlayHovered && playHoverImage != null) {
+                    g2.drawImage(playHoverImage, 62, 400, 418, 180, null);
+                } else {
+                    g2.drawImage(playBtnImage, 85, 390, 311, 115, null);
+                }
+            }
+            
+            if (settingsBtnImage != null) {
+                if (isSettingsHovered && settingsHoverImage != null) {
+                    g2.drawImage(settingsHoverImage, 94, 516, 607, 158, null);
+                } else {
+                    g2.drawImage(settingsBtnImage, 27, 505, 642, 131, null);
+                }
+            }
+
+            g2.dispose();
+            return;
+        }
+
         drawSubmarineRoom(g2);
         drawTaskStations(g2);
         drawItems(g2);
@@ -347,8 +489,7 @@ public class GamePanel extends JPanel implements Runnable {
 
             g2.setColor(base);
             g2.fill(new RoundRectangle2D.Double(
-                    station.x, station.y, TASK_STATION_W, TASK_STATION_H, 12, 12
-            ));
+                    station.x, station.y, TASK_STATION_W, TASK_STATION_H, 12, 12));
 
             g2.setColor(new Color(12, 18, 26));
             g2.drawString("TASK", station.x + 22, station.y + 22);
@@ -367,8 +508,7 @@ public class GamePanel extends JPanel implements Runnable {
             boolean near = gameState.isNearTaskStation(
                     item.getX() + ITEM_SIZE * 0.5,
                     item.getY() + ITEM_SIZE * 0.5,
-                    ITEM_PICKUP_RADIUS
-            );
+                    ITEM_PICKUP_RADIUS);
 
             // draw item with bright highlight when nearby
             g2.setColor(near ? new Color(255, 240, 120) : getItemColor(item.getItemType()));
@@ -380,10 +520,12 @@ public class GamePanel extends JPanel implements Runnable {
             g2.drawOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
 
             g2.setColor(new Color(16, 22, 30));
-            g2.drawString(formatItemLabel(item.getItemType()), (int) Math.round(item.getX()) - 8, (int) Math.round(item.getY()) - 4);
+            g2.drawString(formatItemLabel(item.getItemType()), (int) Math.round(item.getX()) - 8,
+                    (int) Math.round(item.getY()) - 4);
 
             if (near && !isHoldingItem()) {
-                g2.drawString("Press E", (int) Math.round(item.getX()) - 2, (int) Math.round(item.getY()) + ITEM_SIZE + 14);
+                g2.drawString("Press E", (int) Math.round(item.getX()) - 2,
+                        (int) Math.round(item.getY()) + ITEM_SIZE + 14);
             }
         }
     }
@@ -417,7 +559,8 @@ public class GamePanel extends JPanel implements Runnable {
         int cardW = 980;
         int cardH = 72;
 
-        g2.setPaint(new GradientPaint(cardX, cardY, new Color(9, 16, 28, 228), cardX, cardY + cardH, new Color(6, 12, 22, 214)));
+        g2.setPaint(new GradientPaint(cardX, cardY, new Color(9, 16, 28, 228), cardX, cardY + cardH,
+                new Color(6, 12, 22, 214)));
         g2.fillRoundRect(cardX, cardY, cardW, cardH, 18, 18);
         g2.setColor(new Color(90, 123, 152));
         g2.drawRoundRect(cardX, cardY, cardW, cardH, 18, 18);
@@ -438,7 +581,8 @@ public class GamePanel extends JPanel implements Runnable {
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         g2.setColor(new Color(171, 203, 225));
         g2.drawString("WASD move   E interact/pickup   Q drop   T throw", cardX + 18, cardY + 63);
-        g2.drawString("Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking", cardX + 350, cardY + 63);
+        g2.drawString("Objective: Reach " + gameState.getBuoyancyTarget() + " buoyancy before sinking", cardX + 350,
+                cardY + 63);
 
         drawDepthGauge(g2, 1020, 14, 240, 72);
     }
@@ -461,7 +605,8 @@ public class GamePanel extends JPanel implements Runnable {
         int fillW = (int) Math.round(innerW * ratio);
         if (fillW > 0) {
             g2.setClip(innerX, innerY, fillW, innerH);
-            g2.setPaint(new GradientPaint(innerX, innerY + innerH, new Color(27, 99, 168), innerX, innerY, new Color(101, 208, 255)));
+            g2.setPaint(new GradientPaint(innerX, innerY + innerH, new Color(27, 99, 168), innerX, innerY,
+                    new Color(101, 208, 255)));
             g2.fillRoundRect(innerX, innerY, innerW, innerH, 8, 8);
             g2.setClip(null);
         }
@@ -496,8 +641,7 @@ public class GamePanel extends JPanel implements Runnable {
         g2.drawString(
                 "Final Buoyancy: " + gameState.getBuoyancy(),
                 PANEL_WIDTH / 2 - 96,
-                PANEL_HEIGHT / 2 + 28
-        );
+                PANEL_HEIGHT / 2 + 28);
     }
 
     private static final class TaskStation {
