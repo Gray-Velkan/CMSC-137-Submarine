@@ -21,6 +21,7 @@ import java.awt.event.HierarchyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JPanel;
@@ -37,7 +38,9 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int TASK_STATION_H = 72;
     private static final double TASK_INTERACTION_RADIUS = 78.0;
 
-    private static final int ITEM_SIZE = 16;
+    private static final int ITEM_SIZE = 90;
+    private static final int ITEM_DRAW_SIZE = 52;
+
     private static final double ITEM_PICKUP_RADIUS = 52.0;
     private static final ItemType NO_ITEM = ItemType.NONE;
 
@@ -89,6 +92,15 @@ public class GamePanel extends JPanel implements Runnable {
     private boolean isEnterHovered = false;
     private boolean isPlayHovered = false;
     private boolean isSettingsHovered = false;
+    private Image wrenchImage;
+    private Image welderImage;
+    private Image handPumpImage;
+    private Image patchPlateImage;
+    private Image extinguisherImage;
+    private Image defeatImage;
+    private Image playagain;
+    private Image quit;
+    private Image victoryImage;
 
     public GamePanel() {
         this.tileManager = new TileManager();
@@ -117,6 +129,18 @@ public class GamePanel extends JPanel implements Runnable {
                 this.sfxOffBtnImage = ImageIO.read(new File("assets/sfx_off.png"));
                 this.rulesBtnImage = ImageIO.read(new File("assets/rules.png"));
                 this.mapBgImage = ImageIO.read(new File("assets/map.png"));
+                this.wrenchImage      = ImageIO.read(new File("assets/wrench.png"));
+                this.defeatImage = ImageIO.read(new File("assets/defeat.png"));
+
+                this.playagain = ImageIO.read(new File("assets/playagain_button.png"));
+                this.quit = ImageIO.read(new File("assets/quit.png"));
+
+                this.victoryImage = ImageIO.read(new File("assets/victory.png"));
+
+                this.welderImage      = ImageIO.read(new File("assets/welder.png"));
+            this.handPumpImage    = ImageIO.read(new File("assets/handpump.png"));
+            this.patchPlateImage  = ImageIO.read(new File("assets/plate.png"));
+            this.extinguisherImage = ImageIO.read(new File("assets/extinguisher.png"));
             } catch (IOException e) {
                 System.err.println("Failed to load images");
                 e.printStackTrace();
@@ -193,6 +217,28 @@ public class GamePanel extends JPanel implements Runnable {
                             currentScreen = ScreenState.PAUSED;
                             repaint();
                         }
+
+                        if (gameState.isRoundOver()) {
+                            // Play Again button
+                            if (logicalX >= 400 && logicalX <= (400 + 300) &&
+                                    logicalY >= 450 && logicalY <= (450 + 80)) {
+                                resetGame();
+                                currentScreen = ScreenState.LOADING;
+                                loadingTimer = 0.0;
+                                gameMusic.stop();
+                                if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                                repaint();
+                            }
+                            // Quit button
+                            else if (logicalX >= 400 && logicalX <= (400 + 300) &&
+                                    logicalY >= 550 && logicalY <= (550 + 80)) {
+                                currentScreen = ScreenState.MAIN_MENU;
+                                gameMusic.stop();
+                                if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                                repaint();
+                            }
+                        }
+
                     } else if (currentScreen == ScreenState.PAUSED) {
                         // Resume
                         if (logicalX >= 447.8 && logicalX <= (447.8 + 384.4) &&
@@ -540,15 +586,63 @@ public class GamePanel extends JPanel implements Runnable {
         return stations;
     }
 
+    private static final int[][] VALID_SPAWN_TILES = {
+        // Command bridge (far left)
+        {3, 3}, {4, 3}, {5, 3}, {6, 3},
+        {3, 4}, {4, 4}, {5, 4}, {6, 4},
+    
+        // Central hallway (spread out)
+        {8, 13}, {10, 13}, {12, 13}, {14, 13}, {16, 13},
+    
+        // Storage / airlock room
+        {19, 4}, {21, 4}, {23, 4},
+    
+        // Reactor room
+        {20, 13}, {22, 13},
+    
+        // Engine room (far right)
+        {29, 7}, {31, 7}, {33, 7},
+        {29, 9}, {31, 9}, {33, 9},
+    
+        // Upper corridor / other rooms
+        {8, 5}, {10, 5}, {12, 5},
+        {15, 8}, {17, 8},
+    };
+
     private List<ItemEntity> createInitialItems() {
         List<ItemEntity> items = new ArrayList<>();
-        // storage / airlock room
-        items.add(new ItemEntity(tileToPixel(20), tileToPixel(4), ItemType.WRENCH));
-        items.add(new ItemEntity(tileToPixel(22), tileToPixel(4), ItemType.PATCH_PLATE));
-        items.add(new ItemEntity(tileToPixel(24), tileToPixel(4), ItemType.WELDER));
-        // reactor room
-        items.add(new ItemEntity(tileToPixel(20), tileToPixel(14), ItemType.HAND_PUMP));
-        items.add(new ItemEntity(tileToPixel(22), tileToPixel(14), ItemType.EXTINGUISHER));
+    
+        // All item types to spawn
+        ItemType[] typesToSpawn = {
+            ItemType.WRENCH,
+            ItemType.PATCH_PLATE,
+            ItemType.WELDER,
+            ItemType.HAND_PUMP,
+            ItemType.EXTINGUISHER
+        };
+
+        int[][] zone1 = {{3,3},{4,3},{5,3},{6,3},{3,4},{4,4},{5,4},{6,4}};        // command bridge
+        int[][] zone2 = {{8,13},{10,13},{12,13},{14,13},{16,13}};                  // hallway
+        int[][] zone3 = {{19,4},{21,4},{23,4},{19,3},{21,3},{23,3}};               // storage
+        int[][] zone4 = {{20,13},{22,13},{20,14},{22,14}};                         // reactor
+        int[][] zone5 = {{29,7},{31,7},{33,7},{29,9},{31,9},{33,9}};               // engine room
+    
+        int[][][] zones = {zone1, zone2, zone3, zone4, zone5};
+    
+        // Shuffle a copy of the valid spawn tiles
+        List<ItemType> shuffledTypes = new ArrayList<>(List.of(typesToSpawn));
+        java.util.Collections.shuffle(shuffledTypes);
+    
+        // Assign each item type a unique random tile
+        for (int i = 0; i < zones.length; i++) {
+            // Pick a random tile within the zone
+            List<int[]> zoneTiles = new ArrayList<>(List.of(zones[i]));
+            java.util.Collections.shuffle(zoneTiles);
+            int[] tile = zoneTiles.get(0);
+    
+            items.add(new ItemEntity(tileToPixel(tile[0]), tileToPixel(tile[1]), shuffledTypes.get(i)));
+        }
+    
         return items;
     }
 
@@ -650,6 +744,7 @@ public class GamePanel extends JPanel implements Runnable {
         drawTaskStations(g2);
         drawItems(g2);
         drawPlayer(g2);
+        // drawTileDebug(g2);
         drawHud(g2);
 
         if (gameState.isRoundOver()) {
@@ -711,6 +806,18 @@ public class GamePanel extends JPanel implements Runnable {
         }
     }
 
+    private Image getItemImage(ItemType itemType) {
+        return switch (itemType) {
+            case WRENCH       -> wrenchImage;
+
+            case WELDER       -> welderImage;
+            case HAND_PUMP    -> handPumpImage;
+            case PATCH_PLATE  -> patchPlateImage;
+            case EXTINGUISHER -> extinguisherImage;
+            default           -> null;
+        };
+    }
+
     private void drawItems(Graphics2D g2) {
         g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
         for (ItemEntity item : worldItems) {
@@ -718,38 +825,51 @@ public class GamePanel extends JPanel implements Runnable {
                     item.getX() + ITEM_SIZE * 0.5,
                     item.getY() + ITEM_SIZE * 0.5,
                     ITEM_PICKUP_RADIUS);
+        int drawX = (int) Math.round(item.getX() + (ITEM_SIZE - ITEM_DRAW_SIZE) * 0.5);
+        int drawY = (int) Math.round(item.getY() + (ITEM_SIZE - ITEM_DRAW_SIZE) * 0.5);
 
-            // draw item with bright highlight when nearby
-            g2.setColor(near ? new Color(255, 240, 120) : getItemColor(item.getItemType()));
-            g2.fillOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
-
-            // add dark outline for visibility
-            g2.setColor(new Color(32, 40, 50));
-            g2.setStroke(new java.awt.BasicStroke(1.5f));
-            g2.drawOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
-
-            g2.setColor(new Color(16, 22, 30));
-            g2.drawString(formatItemLabel(item.getItemType()), (int) Math.round(item.getX()) - 8,
-                    (int) Math.round(item.getY()) - 4);
-
-            if (near && !isHoldingItem()) {
-                g2.drawString("Press E", (int) Math.round(item.getX()) - 2,
-                        (int) Math.round(item.getY()) + ITEM_SIZE + 14);
+    
+            Image img = getItemImage(item.getItemType());
+            if (img != null) {
+                g2.drawImage(img,
+                    (int) Math.round(item.getX()),
+                    (int) Math.round(item.getY()),
+                    ITEM_SIZE, ITEM_SIZE, null);
+            } else {
+                // fallback colored circle if image missing
+                // g2.setColor(near ? new Color(255, 240, 120) : getItemColor(item.getItemType()));
+                g2.fillOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
+                g2.setColor(new Color(32, 40, 50));
+                g2.setStroke(new java.awt.BasicStroke(1.5f));
+                g2.drawOval((int) Math.round(item.getX()), (int) Math.round(item.getY()), ITEM_SIZE, ITEM_SIZE);
+            }
+    
+            // only show label and prompt when player is nearby
+            if (near) {
+                g2.setColor(Color.WHITE);
+                g2.drawString(formatItemLabel(item.getItemType()),
+                        (int) Math.round(item.getX()) - 4,
+                        (int) Math.round(item.getY()) + ITEM_SIZE + 13);
+                if (!isHoldingItem()) {
+                    g2.setColor(new Color(200, 240, 200));
+                    g2.drawString("Press E",
+                            (int) Math.round(item.getX()) - 2,
+                            (int) Math.round(item.getY()) + ITEM_SIZE + 26);
+                }
             }
         }
     }
-
-    private Color getItemColor(ItemType itemType) {
-        // give each item type a distinct color for visibility
-        return switch (itemType) {
-            case PATCH_PLATE -> new Color(220, 100, 100);
-            case WELDER -> new Color(220, 150, 80);
-            case HAND_PUMP -> new Color(100, 180, 220);
-            case EXTINGUISHER -> new Color(200, 80, 220);
-            case WRENCH -> new Color(150, 150, 150);
-            case NONE -> new Color(100, 100, 100);
-        };
-    }
+    // private Color getItemColor(ItemType itemType) {
+    //     // give each item type a distinct color for visibility
+    //     return switch (itemType) {
+    //         case PATCH_PLATE -> new Color(220, 100, 100);
+    //         case WELDER -> new Color(220, 150, 80);
+    //         case HAND_PUMP -> new Color(100, 180, 220);
+    //         case EXTINGUISHER -> new Color(200, 80, 220);
+    //         case WRENCH -> new Color(150, 150, 150);
+    //         case NONE -> new Color(100, 100, 100);
+    //     };
+    // }
 
     private void drawPlayer(Graphics2D g2) {
         int px = (int) Math.round(gameState.getPlayerX());
@@ -782,19 +902,16 @@ public class GamePanel extends JPanel implements Runnable {
         g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), (int) Math.round(357.0),
                 (int) Math.round(130.0));
 
-        // Held Item: Centered below the wrench box
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 15));
         g2.drawString(formatItemLabel(gameState.getHeldItemType()).toUpperCase(), (int) Math.round(451.9),
                 (int) Math.round(110.0));
 
-        // Draw the depth gauge over the DEPTH box
         drawDepthGauge(g2, (int) Math.round(881.3), (int) Math.round(100.9), (int) Math.round(161.0),
                 (int) Math.round(33.5));
 
         // Draw pause button
         if (pauseBtnImage != null) {
-            // Sizing down to fit the navbar
             g2.drawImage(pauseBtnImage, (int) Math.round(1113.9), (int) Math.round(54.5), (int) Math.round(84.9),
                     (int) Math.round(84.9), null);
         }
@@ -827,28 +944,73 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void drawRoundEndOverlay(Graphics2D g2) {
-        g2.setColor(new Color(0, 0, 0, 170));
-        g2.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
-
-        g2.setColor(Color.WHITE);
-        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 40));
-
-        String title;
         if (gameState.hasWon()) {
-            title = "MISSION SAVED";
-        } else if (gameState.hasLostBySinking()) {
-            title = "SUBMARINE SUNK";
+            if (victoryImage != null) {
+                g2.drawImage(victoryImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            } else {
+                g2.setColor(new Color(0, 0, 0, 170));
+                g2.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 40));
+                g2.drawString("MISSION SAVED", PANEL_WIDTH / 2 - 180, PANEL_HEIGHT / 2 - 10);
+                g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));
+                g2.drawString("Final Buoyancy: " + gameState.getBuoyancy(),
+                        PANEL_WIDTH / 2 - 96, PANEL_HEIGHT / 2 + 28);
+            }
         } else {
-            title = "TIME UP";
+            if (defeatImage != null) {
+                g2.drawImage(defeatImage, -80, 0, PANEL_WIDTH + 80, PANEL_HEIGHT, null);
+            } else {
+                // fallback text if image missing
+                g2.setColor(new Color(0, 0, 0, 170));
+                g2.fillRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 40));
+                String title = gameState.hasLostBySinking() ? "SUBMARINE SUNK" : "TIME UP";
+                g2.drawString(title, PANEL_WIDTH / 2 - 180, PANEL_HEIGHT / 2 - 10);
+                if (playagain != null) {
+                    g2.drawImage(playagain,
+                        400, 450,  // x, y  ← adjust position
+                        300, 80,   // w, h  ← adjust size
+                        null);
+                }
+                if (quit != null) {
+                    g2.drawImage(quit,
+                        400, 550,  // x, y  ← adjust position
+                        300, 80,   // w, h  ← adjust size
+                        null);
+                }
+            }
         }
-        g2.drawString(title, PANEL_WIDTH / 2 - 180, PANEL_HEIGHT / 2 - 10);
-
-        g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));
-        g2.drawString(
-                "Final Buoyancy: " + gameState.getBuoyancy(),
-                PANEL_WIDTH / 2 - 96,
-                PANEL_HEIGHT / 2 + 28);
     }
+
+    // private void drawTileDebug(Graphics2D g2) {
+    //     int tileSize = TileManager.TILE_SIZE;
+    //     g2.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 9));
+    
+    //     for (int row = 0; row < tileManager.getMapHeightPixels() / tileSize; row++) {
+    //         for (int col = 0; col < tileManager.getMapWidthPixels() / tileSize; col++) {
+    //             int px = col * tileSize;
+    //             int py = row * tileSize;
+    
+    //             // draw grid line
+    //             g2.setColor(new Color(255, 255, 0, 60));
+    //             g2.drawRect(px, py, tileSize, tileSize);
+    //             g2.setColor(new Color(0, 0, 0, 120));
+    //             g2.fillRect(px + 2, py + 2, 36, 16); 
+    //             // draw tile coordinates
+    //             g2.setColor(new Color(255, 255, 255, 180));
+    //             g2.drawString(col + "," + row, px + 2, py + 10);
+    //         }
+    //     }
+    
+    //     // draw player tile position in corner for reference
+    //     int playerTileX = (int) (gameState.getPlayerX() / tileSize);
+    //     int playerTileY = (int) (gameState.getPlayerY() / tileSize);
+    //     g2.setColor(Color.YELLOW);
+    //     g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 14));
+    //     g2.drawString("Player tile: " + playerTileX + ", " + playerTileY, 20, 200);
+    // }
 
     private static final class TaskStation {
         private final String name;
