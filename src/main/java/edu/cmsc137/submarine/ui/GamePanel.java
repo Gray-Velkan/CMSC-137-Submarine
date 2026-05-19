@@ -6,23 +6,23 @@ import edu.cmsc137.submarine.core.ItemEntity;
 import edu.cmsc137.submarine.core.ItemType;
 import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
-import java.awt.Image;
-import java.io.File;
-import java.io.IOException;
-import javax.imageio.ImageIO;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.imageio.ImageIO;
 import javax.swing.JPanel;
 
 public class GamePanel extends JPanel implements Runnable {
@@ -73,7 +73,7 @@ public class GamePanel extends JPanel implements Runnable {
     private Image sfxOffBtnImage;
     private Image rulesBtnImage;
     private Image mapBgImage;
-    private Image loadingGifImage;
+    private final Image loadingGifImage;
     private Image navbarImage;
     private Image pauseBtnImage;
     private Image pauseOverlayImage;
@@ -188,7 +188,13 @@ public class GamePanel extends JPanel implements Runnable {
                             repaint();
                         }
                     } else if (currentScreen == ScreenState.GAME) {
-                        if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
+                        if (gameState.isRoundOver()) {
+                            // Any click on round-end overlay returns to title
+                            currentScreen = ScreenState.MAIN_MENU;
+                            gameMusic.stop();
+                            if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                            repaint();
+                        } else if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
                                 logicalY >= 54.5 && logicalY <= (54.5 + 84.9)) {
                             currentScreen = ScreenState.PAUSED;
                             repaint();
@@ -372,7 +378,16 @@ public class GamePanel extends JPanel implements Runnable {
         }
     }
 
-    private void processInput(double deltaSeconds) {
+    protected InputHandler getInputHandler() {
+        return inputHandler;
+    }
+
+    protected void updateState(double deltaSeconds) {
+        // keep all simulation progression inside game state
+        gameState.update(deltaSeconds);
+    }
+
+    protected void processInput(double deltaSeconds) {
         if (gameState.isRoundOver()) {
             return;
         }
@@ -438,11 +453,6 @@ public class GamePanel extends JPanel implements Runnable {
         if (!tileManager.isSolidHitbox(projectedY)) {
             gameState.movePlayer(0.0, moveY, PLAYER_WIDTH, PLAYER_HEIGHT);
         }
-    }
-
-    private void updateState(double deltaSeconds) {
-        // keep all simulation progression inside game state
-        gameState.update(deltaSeconds);
     }
 
     private void handleInteraction() {
@@ -848,6 +858,26 @@ public class GamePanel extends JPanel implements Runnable {
                 "Final Buoyancy: " + gameState.getBuoyancy(),
                 PANEL_WIDTH / 2 - 96,
                 PANEL_HEIGHT / 2 + 28);
+
+        // Draw "Return to Menu" button
+        int buttonX = PANEL_WIDTH / 2 - 100;
+        int buttonY = PANEL_HEIGHT / 2 + 80;
+        int buttonW = 200;
+        int buttonH = 60;
+
+        g2.setColor(new Color(88, 192, 120));
+        g2.fillRoundRect(buttonX, buttonY, buttonW, buttonH, 15, 15);
+
+        g2.setColor(new Color(14, 24, 34));
+        g2.setStroke(new java.awt.BasicStroke(2.0f));
+        g2.drawRoundRect(buttonX, buttonY, buttonW, buttonH, 15, 15);
+
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        String buttonText = "Return to Menu";
+        int textX = buttonX + (buttonW - g2.getFontMetrics().stringWidth(buttonText)) / 2;
+        int textY = buttonY + ((buttonH - g2.getFontMetrics().getHeight()) / 2) + g2.getFontMetrics().getAscent();
+        g2.drawString(buttonText, textX, textY);
     }
 
     private static final class TaskStation {
