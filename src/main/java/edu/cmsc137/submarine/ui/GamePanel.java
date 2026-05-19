@@ -200,7 +200,7 @@ public class GamePanel extends JPanel implements Runnable {
         }
     }
 
-    private void updateState(double deltaSeconds) {
+    protected void updateState(double deltaSeconds) {
         // keep all simulation progression inside game state
         gameState.update(deltaSeconds);
     }
