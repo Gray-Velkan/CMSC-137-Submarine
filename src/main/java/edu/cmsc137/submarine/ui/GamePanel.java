@@ -43,6 +43,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private static final double INITIAL_TIME_SECONDS = 180.0;
     private static final int TARGET_FPS = 60;
+    private static final int HUD_VERTICAL_OFFSET = -40; //Input the destination of the hub
 
     private final TileManager tileManager;
     private GameState gameState;
@@ -774,7 +775,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private void drawHud(Graphics2D g2) {
         if (navbarImage != null) {
-            g2.drawImage(navbarImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            g2.drawImage(navbarImage, 0, HUD_VERTICAL_OFFSET, PANEL_WIDTH, PANEL_HEIGHT, null);
         }
 
         g2.setColor(new Color(240, 230, 140)); // A nice yellowish color for numbers
@@ -782,30 +783,30 @@ public class GamePanel extends JPanel implements Runnable {
 
         // Buoyancy: "48/100" format at bottom-left of Buoyancy box
         g2.drawString(gameState.getBuoyancy() + "/" + gameState.getBuoyancyTarget(), (int) Math.round(113.3),
-                (int) Math.round(130.0));
+                (int) Math.round(130.0 + HUD_VERTICAL_OFFSET));
 
         // Time: Format as whole number centered below the clock icon
         int totalSeconds = (int) Math.max(0, gameState.getTimeRemainingSeconds());
-        g2.drawString(String.valueOf(totalSeconds), (int) Math.round(286.8), (int) Math.round(120.0));
+        g2.drawString(String.valueOf(totalSeconds), (int) Math.round(286.8), (int) Math.round(120.0 + HUD_VERTICAL_OFFSET));
 
         // Drain: Bottom-right below the pipe
         g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), (int) Math.round(357.0),
-                (int) Math.round(130.0));
+                (int) Math.round(130.0 + HUD_VERTICAL_OFFSET));
 
         // Held Item: Centered below the wrench box
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 15));
         g2.drawString(formatItemLabel(gameState.getHeldItemType()).toUpperCase(), (int) Math.round(451.9),
-                (int) Math.round(110.0));
+                (int) Math.round(110.0 + HUD_VERTICAL_OFFSET));
 
         // Draw the depth gauge over the DEPTH box
-        drawDepthGauge(g2, (int) Math.round(881.3), (int) Math.round(100.9), (int) Math.round(161.0),
+        drawDepthGauge(g2, (int) Math.round(881.3), (int) Math.round(100.9 + HUD_VERTICAL_OFFSET), (int) Math.round(161.0),
                 (int) Math.round(33.5));
 
         // Draw pause button
         if (pauseBtnImage != null) {
             // Sizing down to fit the navbar
-            g2.drawImage(pauseBtnImage, (int) Math.round(1113.9), (int) Math.round(54.5), (int) Math.round(84.9),
+            g2.drawImage(pauseBtnImage, (int) Math.round(1113.9), (int) Math.round(54.5 + HUD_VERTICAL_OFFSET), (int) Math.round(84.9),
                     (int) Math.round(84.9), null);
         }
     }
