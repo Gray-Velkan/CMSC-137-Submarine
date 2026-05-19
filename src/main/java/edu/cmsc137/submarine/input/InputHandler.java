@@ -12,8 +12,10 @@ public class InputHandler implements KeyListener {
 
     // one-shot action consumed by the game loop
     private boolean interactQueued;
+    private boolean interactPressed;
     private boolean dropQueued;
     private boolean throwQueued;
+    private boolean clickQueued;
 
     @Override
     public void keyTyped(KeyEvent e) {
@@ -28,7 +30,10 @@ public class InputHandler implements KeyListener {
             case KeyEvent.VK_S -> downPressed = true;
             case KeyEvent.VK_A -> leftPressed = true;
             case KeyEvent.VK_D -> rightPressed = true;
-            case KeyEvent.VK_E -> interactQueued = true;
+            case KeyEvent.VK_E -> {
+                interactQueued = true;
+                interactPressed = true;
+            }
             case KeyEvent.VK_Q -> dropQueued = true;
             case KeyEvent.VK_T -> throwQueued = true;
             default -> {
@@ -45,6 +50,7 @@ public class InputHandler implements KeyListener {
             case KeyEvent.VK_S -> downPressed = false;
             case KeyEvent.VK_A -> leftPressed = false;
             case KeyEvent.VK_D -> rightPressed = false;
+            case KeyEvent.VK_E -> interactPressed = false;
             default -> {
                 // ignore unrelated keys
             }
@@ -92,5 +98,19 @@ public class InputHandler implements KeyListener {
             return true;
         }
         return false;
+    }
+
+    public boolean consumeClick() {
+        boolean wasQueued = clickQueued;
+        clickQueued = false;
+        return wasQueued;
+    }
+
+    public void queueClick() {
+        clickQueued = true;
+    }
+
+    public boolean isInteractPressed() {
+        return interactPressed;
     }
 }

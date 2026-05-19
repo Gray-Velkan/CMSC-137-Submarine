@@ -15,6 +15,8 @@ public class GameState {
     private final double buoyancyDrainPerSecond;
     private boolean sank;
     private double buoyancyDrainAccumulator;
+    private double totalElapsedTime;
+    private boolean powerRoutedToPump;
 
     // local player state
     private final Player player;
@@ -39,6 +41,8 @@ public class GameState {
         this.buoyancyDrainPerSecond = Math.max(0.0, buoyancyDrainPerSecond);
         this.sank = false;
         this.buoyancyDrainAccumulator = 0.0;
+        this.totalElapsedTime = 0.0;
+        this.powerRoutedToPump = false;
 
         // spawn roughly at the center
         this.player = new Player(worldWidth * 0.5, worldHeight * 0.5, 0.0);
@@ -52,8 +56,15 @@ public class GameState {
         // countdown cannot go below zero
         timeRemainingSeconds = Math.max(0.0, timeRemainingSeconds - deltaSeconds);
 
-        // apply passive flooding over time
-        buoyancyDrainAccumulator += buoyancyDrainPerSecond * deltaSeconds;
+        // Track total elapsed time for difficulty scaling
+        totalElapsedTime += deltaSeconds;
+
+        // Progressive difficulty: increase passive buoyancy drain rate by 10% for every 30 seconds elapsed
+        int intervals = (int) (totalElapsedTime / 30.0);
+        double currentDrainRate = buoyancyDrainPerSecond * Math.pow(1.10, intervals);
+
+        // apply progressive passive flooding over time
+        buoyancyDrainAccumulator += currentDrainRate * deltaSeconds;
         int drained = (int) buoyancyDrainAccumulator;
         if (drained > 0) {
             buoyancy = Math.max(0, buoyancy - drained);
@@ -120,6 +131,10 @@ public class GameState {
         return buoyancy;
     }
 
+    public void setBuoyancy(int buoyancy) {
+        this.buoyancy = Math.max(0, Math.min(buoyancyTarget, buoyancy));
+    }
+
     public int getBuoyancyTarget() {
         return buoyancyTarget;
     }
@@ -130,6 +145,18 @@ public class GameState {
 
     public double getTimeRemainingSeconds() {
         return timeRemainingSeconds;
+    }
+
+    public void setTimeRemainingSeconds(double timeRemainingSeconds) {
+        this.timeRemainingSeconds = Math.max(0.0, timeRemainingSeconds);
+    }
+
+    public boolean isSank() {
+        return sank;
+    }
+
+    public void setSank(boolean sank) {
+        this.sank = sank;
     }
 
     public double getPlayerX() {
@@ -178,8 +205,6 @@ public class GameState {
         return player.tossItem();
     }
 
-
-
     public ItemType getHeldItemType() {
         return player.getCurrentItem();
     }
@@ -194,6 +219,22 @@ public class GameState {
 
     public void setPumping(boolean pumping) {
         player.setPumping(pumping);
+    }
+
+    public double getTotalElapsedTime() {
+        return totalElapsedTime;
+    }
+
+    public void setTotalElapsedTime(double totalElapsedTime) {
+        this.totalElapsedTime = totalElapsedTime;
+    }
+
+    public boolean isPowerRoutedToPump() {
+        return powerRoutedToPump;
+    }
+
+    public void setPowerRoutedToPump(boolean powerRoutedToPump) {
+        this.powerRoutedToPump = powerRoutedToPump;
     }
 
     private ItemType parseItemType(String itemName) {
