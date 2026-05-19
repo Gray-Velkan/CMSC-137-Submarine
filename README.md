@@ -12,10 +12,12 @@ src/main/java/edu/cmsc137/submarine/
 
 ## Run Locally
 
+Requires Java 21 or newer.
+
 Compile:
 
 ```powershell
-javac -d out (Get-ChildItem -Recurse src\main\java\*.java | ForEach-Object FullName)
+javac --release 21 -d out (Get-ChildItem -Recurse src\main\java\*.java | ForEach-Object FullName)
 ```
 
 Run:

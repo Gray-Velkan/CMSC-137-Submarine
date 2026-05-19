@@ -112,6 +112,10 @@ public class GamePanel extends JPanel implements Runnable {
     private Image victoryImage;
 
     public GamePanel() {
+        this(null, null);
+    }
+
+    public GamePanel(edu.cmsc137.submarine.network.GameClient client, String localPlayerId) {
         this.tileManager = new TileManager();
         this.gameState = new GameState(
                 tileManager.getMapWidthPixels(),
@@ -120,6 +124,8 @@ public class GamePanel extends JPanel implements Runnable {
         this.inputHandler = new InputHandler();
         this.taskStations = createTaskStations();
         this.worldItems = createInitialItems();
+        this.client = client;
+        this.localPlayerId = localPlayerId;
 
         try {
             this.titleBgImage = ImageIO.read(new File("assets/title page.png"));
@@ -418,6 +424,21 @@ public class GamePanel extends JPanel implements Runnable {
                 }
                 accumulator -= fixedDeltaSeconds;
             }
+
+                // periodically send local player state to server (20Hz target)
+                if (client != null && localPlayerId != null) {
+                    int count = sendCounter.incrementAndGet();
+                    if (count % 3 == 0) { // approx every 3 frames at 60fps
+                        try {
+                            double px = gameState.getPlayerX();
+                            double py = gameState.getPlayerY();
+                            int fx = gameState.getPlayer().getFacingX();
+                            int fy = gameState.getPlayer().getFacingY();
+                            client.send(new edu.cmsc137.submarine.network.PlayerStatePacket(localPlayerId, px, py, fx, fy));
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
 
             repaint();
 
@@ -1002,6 +1023,31 @@ public class GamePanel extends JPanel implements Runnable {
         if (pauseBtnImage != null) {
             g2.drawImage(pauseBtnImage, (int) Math.round(1113.9), (int) Math.round(54.5), (int) Math.round(84.9),
                     (int) Math.round(84.9), null);
+        }
+    }
+
+    public void updateRemotePlayers(java.util.List<edu.cmsc137.submarine.network.PlayerSnapshot> players) {
+        if (players == null) return;
+        // replace map entries
+        remotePlayers.clear();
+        for (edu.cmsc137.submarine.network.PlayerSnapshot ps : players) {
+            if (ps == null) continue;
+            if (localPlayerId != null && localPlayerId.equals(ps.getPlayerId())) continue;
+            remotePlayers.put(ps.getPlayerId(), ps);
+        }
+    }
+
+    private void drawOtherPlayers(Graphics2D g2) {
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        for (edu.cmsc137.submarine.network.PlayerSnapshot ps : remotePlayers.values()) {
+            int px = (int) Math.round(ps.getX());
+            int py = (int) Math.round(ps.getY());
+            g2.setColor(new Color(120, 200, 120));
+            g2.fillRoundRect(px, py, PLAYER_WIDTH, PLAYER_HEIGHT, 8, 8);
+            g2.setColor(new Color(12, 18, 26));
+            g2.drawRoundRect(px, py, PLAYER_WIDTH, PLAYER_HEIGHT, 8, 8);
+            g2.setColor(new Color(220, 230, 240));
+            g2.drawString(ps.getPlayerName(), px, py - 6);
         }
     }
 
