@@ -1,10 +1,18 @@
 package edu.cmsc137.submarine.network;
 
 import edu.cmsc137.submarine.core.GameState;
-import java.io.*;
-import java.net.*;
-import java.util.*;
-import java.util.concurrent.*;
+import edu.cmsc137.submarine.core.ItemType;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Game server that manages connections and synchronizes game state for all clients.
@@ -14,11 +22,13 @@ public class GameServer {
     private final GameState gameState;
     private final int port;
     private final Map<Integer, ClientHandler> connectedClients;
+    private final Map<Integer, PlayerState> playerStates;
     private final BlockingQueue<NetworkMessage> messageQueue;
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private Thread gameLoopThread;
     private volatile boolean running;
+    private volatile boolean gameStarted;
     private int nextPlayerId = 1;
     private final Object clientLock = new Object();
 
@@ -26,8 +36,10 @@ public class GameServer {
         this.gameState = gameState;
         this.port = port;
         this.connectedClients = new ConcurrentHashMap<>();
+        this.playerStates = new ConcurrentHashMap<>();
         this.messageQueue = new LinkedBlockingQueue<>();
         this.running = false;
+        this.gameStarted = false;
     }
 
     public void start() {
@@ -37,17 +49,16 @@ public class GameServer {
         }
 
         running = true;
+        gameStarted = false;
         try {
             serverSocket = new ServerSocket(port);
             System.out.println("Game server started on port " + port);
 
-            // Thread to accept new client connections
             acceptThread = new Thread(this::acceptConnections);
             acceptThread.setName("GameServer-Accept");
             acceptThread.setDaemon(true);
             acceptThread.start();
 
-            // Thread to process messages and update game state
             gameLoopThread = new Thread(this::gameLoop);
             gameLoopThread.setName("GameServer-GameLoop");
             gameLoopThread.setDaemon(true);
@@ -61,6 +72,7 @@ public class GameServer {
 
     public void stop() {
         running = false;
+        gameStarted = false;
 
         synchronized (clientLock) {
             for (ClientHandler handler : connectedClients.values()) {
@@ -68,6 +80,7 @@ public class GameServer {
             }
             connectedClients.clear();
         }
+        playerStates.clear();
 
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
@@ -124,20 +137,25 @@ public class GameServer {
 
         while (running) {
             try {
-                // Process incoming messages from clients
                 while (!messageQueue.isEmpty()) {
                     NetworkMessage msg = messageQueue.poll();
-                    processMessage(msg);
+                    if (msg != null) {
+                        processMessage(msg);
+                    }
                 }
 
-                // Periodically send game state to all clients
+                // Only update game state (timer, buoyancy drain) when game has started
+                if (gameStarted) {
+                    gameState.update(1.0 / 60.0);
+                }
+
                 long currentTime = System.currentTimeMillis();
-                if (currentTime - lastSyncTime >= SYNC_INTERVAL) {
+                if (gameStarted && currentTime - lastSyncTime >= SYNC_INTERVAL) {
                     broadcastGameStateUpdate();
                     lastSyncTime = currentTime;
                 }
 
-                Thread.sleep(16); // ~60 FPS
+                Thread.sleep(16);
 
             } catch (InterruptedException e) {
                 if (running) {
@@ -149,31 +167,36 @@ public class GameServer {
 
     private void processMessage(NetworkMessage message) {
         switch (message.getType()) {
-            case PLAYER_MOVE:
-                handlePlayerMove(message);
-                break;
-            case PLAYER_ACTION:
-                handlePlayerAction(message);
-                break;
-            case ITEM_PICKUP:
-                handleItemPickup(message);
-                break;
-            case ITEM_DROP:
-                handleItemDrop(message);
-                break;
-            case DISCONNECT:
-                handlePlayerDisconnect(message.getPlayerId());
-                break;
-            default:
-                break;
+            case PLAYER_MOVE -> handlePlayerMove(message);
+            case PLAYER_ACTION -> handlePlayerAction(message);
+            case ITEM_PICKUP -> handleItemPickup(message);
+            case ITEM_DROP -> handleItemDrop(message);
+            case DISCONNECT -> handlePlayerDisconnect(message.getPlayerId());
+            default -> {
+            }
         }
     }
 
     private void handlePlayerMove(NetworkMessage message) {
-        // Data format: [dx, dy]
-        if (message.getData() instanceof double[] movement) {
-            // Update local game state (this would be integrated with multi-player state)
-            System.out.println("Player " + message.getPlayerId() + " moved: " + Arrays.toString(movement));
+        PlayerState playerState = playerStates.get(message.getPlayerId());
+        if (playerState == null) {
+            return;
+        }
+
+        if (message.getData() instanceof PlayerState update) {
+            playerState.x = update.x;
+            playerState.y = update.y;
+            playerState.facingX = update.facingX;
+            playerState.facingY = update.facingY;
+            playerState.currentItem = update.currentItem;
+            playerState.pumping = update.pumping;
+            playerState.isActive = update.isActive;
+            if (update.playerName != null && !update.playerName.isBlank()) {
+                playerState.playerName = update.playerName;
+            }
+        } else if (message.getData() instanceof double[] movement && movement.length >= 2) {
+            playerState.x = movement[0];
+            playerState.y = movement[1];
         }
     }
 
@@ -193,9 +216,9 @@ public class GameServer {
         synchronized (clientLock) {
             connectedClients.remove(playerId);
         }
+        playerStates.remove(playerId);
         System.out.println("Player " + playerId + " disconnected");
-        
-        // Broadcast disconnect to remaining clients
+
         NetworkMessage disconnectMsg = new NetworkMessage(
             NetworkMessage.MessageType.PLAYER_DISCONNECTED,
             playerId
@@ -209,26 +232,30 @@ public class GameServer {
         snapshot.timeRemainingSeconds = gameState.getTimeRemainingSeconds();
         snapshot.sank = gameState.hasLostBySinking();
         snapshot.gameOver = gameState.isRoundOver();
-        
-        // Add all connected players to the snapshot
+
         synchronized (clientLock) {
-            for (Map.Entry<Integer, ClientHandler> entry : connectedClients.entrySet()) {
-                PlayerState playerState = new PlayerState(entry.getKey(), "Player " + entry.getKey());
-                // TODO: Get actual player position from game state
-                playerState.x = 100 + entry.getKey() * 50; // Temporary positioning
-                playerState.y = 100 + entry.getKey() * 50;
-                snapshot.playerStates.put(entry.getKey(), playerState);
+            for (Map.Entry<Integer, PlayerState> entry : playerStates.entrySet()) {
+                snapshot.playerStates.put(entry.getKey(), copyPlayerState(entry.getValue()));
             }
         }
 
-        System.out.println("Broadcasting game state with " + snapshot.playerStates.size() + " players to " + connectedClients.size() + " clients");
-        
+
         NetworkMessage stateMsg = new NetworkMessage(
             NetworkMessage.MessageType.GAME_STATE_UPDATE,
             0,
             snapshot
         );
         broadcastMessage(stateMsg);
+    }
+
+    public void beginGame() {
+        if (!running || gameStarted) {
+            return;
+        }
+
+        gameStarted = true;
+        broadcastMessage(new NetworkMessage(NetworkMessage.MessageType.START_GAME, 0));
+        broadcastGameStateUpdate();
     }
 
     public void queueMessage(NetworkMessage message) {
@@ -262,6 +289,45 @@ public class GameServer {
         return running;
     }
 
+    public java.util.List<String> getPlayerNames() {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (PlayerState state : playerStates.values()) {
+            names.add(state.playerName != null ? state.playerName : "Player " + state.playerId);
+        }
+        return names;
+    }
+
+    // Valid spawn tiles from the map grid (tile coordinates on floor tiles)
+    private static final int[][] SPAWN_TILES = {
+        {12, 13}, {14, 13}, {10, 13}, {16, 13}, {8, 13},
+        {5, 4}, {6, 4}, {21, 4}, {31, 7}
+    };
+
+    private PlayerState createSpawnPlayerState(int playerId, String playerName) {
+        PlayerState state = new PlayerState(playerId, playerName);
+        int spawnIndex = (playerId - 1) % SPAWN_TILES.length;
+        state.x = SPAWN_TILES[spawnIndex][0] * 32 + 4;
+        state.y = SPAWN_TILES[spawnIndex][1] * 32 + 3;
+        state.facingX = 1;
+        state.facingY = 0;
+        state.currentItem = ItemType.NONE;
+        state.pumping = false;
+        state.isActive = true;
+        return state;
+    }
+
+    private PlayerState copyPlayerState(PlayerState source) {
+        PlayerState copy = new PlayerState(source.playerId, source.playerName);
+        copy.x = source.x;
+        copy.y = source.y;
+        copy.facingX = source.facingX;
+        copy.facingY = source.facingY;
+        copy.currentItem = source.currentItem;
+        copy.pumping = source.pumping;
+        copy.isActive = source.isActive;
+        return copy;
+    }
+
     /**
      * Inner class to handle individual client connections
      */
@@ -283,34 +349,58 @@ public class GameServer {
         @Override
         public void run() {
             try {
-                // Initialize streams (output first to avoid deadlock)
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
                 inputStream = new ObjectInputStream(socket.getInputStream());
                 connected = true;
 
-                // Send player ID to client
-                PlayerState playerState = new PlayerState(playerId, "Player " + playerId);
+                Object firstObject = inputStream.readObject();
+                if (!(firstObject instanceof NetworkMessage joinRequest) || joinRequest.getType() != NetworkMessage.MessageType.JOIN_GAME) {
+                    throw new IOException("Expected join request from client");
+                }
+
+                String playerName = "Player " + playerId;
+                if (joinRequest.getData() instanceof PlayerState joinState && joinState.playerName != null && !joinState.playerName.isBlank()) {
+                    playerName = joinState.playerName.trim();
+                }
+
+                PlayerState playerState = createSpawnPlayerState(playerId, playerName);
+                playerStates.put(playerId, playerState);
+
                 NetworkMessage joinResponse = new NetworkMessage(
                     NetworkMessage.MessageType.JOIN_RESPONSE,
                     playerId,
-                    playerState
+                    copyPlayerState(playerState)
                 );
-                sendMessage(joinResponse);
 
-                // Notify all clients of new player
+                // Send this new player their own state
+                sendMessage(joinResponse);
+                // Tell all other clients about the new player
                 server.broadcastMessage(joinResponse);
 
-                // Listen for incoming messages
+                // Send the new player info about ALL existing players so their lobby is complete
+                for (Map.Entry<Integer, PlayerState> entry : playerStates.entrySet()) {
+                    if (entry.getKey() != playerId) {
+                        NetworkMessage existingPlayer = new NetworkMessage(
+                            NetworkMessage.MessageType.JOIN_RESPONSE,
+                            entry.getKey(),
+                            copyPlayerState(entry.getValue())
+                        );
+                        sendMessage(existingPlayer);
+                    }
+                }
+
+                if (gameStarted) {
+                    sendMessage(new NetworkMessage(NetworkMessage.MessageType.START_GAME, 0));
+                }
+
                 while (connected && server.running) {
                     try {
                         Object obj = inputStream.readObject();
-                        if (obj instanceof NetworkMessage) {
-                            NetworkMessage message = (NetworkMessage) obj;
+                        if (obj instanceof NetworkMessage message) {
                             server.queueMessage(message);
                         }
                     } catch (EOFException e) {
-                        // Client disconnected cleanly
                         break;
                     } catch (SocketException e) {
                         if (connected) {
@@ -332,6 +422,7 @@ public class GameServer {
             try {
                 if (connected && outputStream != null) {
                     synchronized (this) {
+                        outputStream.reset();
                         outputStream.writeObject(message);
                         outputStream.flush();
                     }
@@ -354,3 +445,4 @@ public class GameServer {
         }
     }
 }
+

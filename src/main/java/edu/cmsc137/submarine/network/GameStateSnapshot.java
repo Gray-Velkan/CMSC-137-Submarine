@@ -17,6 +17,7 @@ public class GameStateSnapshot implements Serializable {
     public double timeRemainingSeconds;
     public boolean sank;
     public boolean gameOver;
+    public boolean isPowerRoutedToPump;
     public List<ItemEntity> worldItems;
     public long serverTimestamp;
 

@@ -6,7 +6,7 @@ import java.util.concurrent.*;
 
 /**
  * Game client that connects to the server and syncs game state.
- * Runs on each player's PC.
+ * Runs on each player''s PC.
  */
 public class GameClient {
     private final String serverHost;
@@ -33,17 +33,18 @@ public class GameClient {
     }
 
     public boolean connect() {
-        return connectWithRetry(5, 500); // 5 attempts, 500ms between attempts
+        return connectWithRetry(5, 500);
     }
 
     private boolean connectWithRetry(int maxAttempts, int delayMs) {
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 System.out.println("Connection attempt " + attempt + "/" + maxAttempts + " to " + serverHost + ":" + serverPort);
-                socket = new Socket(serverHost, serverPort);
-                socket.setSoTimeout(NetworkConstants.CONNECTION_TIMEOUT_MS);
+                socket = new Socket();
+                socket.connect(new InetSocketAddress(serverHost, serverPort), NetworkConstants.CONNECTION_TIMEOUT_MS);
+                socket.setSoTimeout(0); // no read timeout — server sends data periodically once game starts
+                socket.setKeepAlive(true);
 
-                // Initialize streams (output first to avoid deadlock)
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
                 inputStream = new ObjectInputStream(socket.getInputStream());
@@ -51,21 +52,17 @@ public class GameClient {
                 connected = true;
                 System.out.println("Connected to server at " + serverHost + ":" + serverPort);
 
-                // Start receive thread
                 receiveThread = new Thread(this::receiveLoop);
                 receiveThread.setName("GameClient-Receive");
                 receiveThread.setDaemon(true);
                 receiveThread.start();
 
-                // Start send thread
                 sendThread = new Thread(this::sendLoop);
                 sendThread.setName("GameClient-Send");
                 sendThread.setDaemon(true);
                 sendThread.start();
 
-                // Send join message
                 PlayerState state = new PlayerState(0, playerName);
-                // Inside GameClient.java
                 NetworkMessage joinMsg = new NetworkMessage(
                     NetworkMessage.MessageType.JOIN_GAME,
                     0,
@@ -78,7 +75,7 @@ public class GameClient {
             } catch (ConnectException e) {
                 System.err.println("Connection failed (attempt " + attempt + "/" + maxAttempts + "): " + e.getMessage());
                 connected = false;
-                
+
                 if (attempt < maxAttempts) {
                     try {
                         Thread.sleep(delayMs);
@@ -90,7 +87,7 @@ public class GameClient {
             } catch (IOException e) {
                 System.err.println("I/O error (attempt " + attempt + "/" + maxAttempts + "): " + e.getMessage());
                 connected = false;
-                
+
                 if (attempt < maxAttempts) {
                     try {
                         Thread.sleep(delayMs);
@@ -101,7 +98,7 @@ public class GameClient {
                 }
             }
         }
-        
+
         System.err.println("Failed to connect after " + maxAttempts + " attempts");
         return false;
     }
@@ -132,8 +129,6 @@ public class GameClient {
             try {
                 Object obj = inputStream.readObject();
                 if (obj instanceof NetworkMessage message) {
-                    
-                    // Handle special messages
                     if (message.getType() == NetworkMessage.MessageType.JOIN_RESPONSE) {
                         if (message.getData() instanceof PlayerState state) {
                             this.playerId = state.playerId;
@@ -170,6 +165,7 @@ public class GameClient {
                 NetworkMessage message = outgoingMessages.poll(100, TimeUnit.MILLISECONDS);
                 if (message != null) {
                     synchronized (this) {
+                        outputStream.reset();
                         outputStream.writeObject(message);
                         outputStream.flush();
                     }
@@ -201,6 +197,37 @@ public class GameClient {
         }
     }
 
+    public void sendPlayerMove(double dx, double dy) {
+        NetworkMessage msg = new NetworkMessage(
+            NetworkMessage.MessageType.PLAYER_MOVE,
+            playerId,
+            new double[]{dx, dy}
+        );
+        sendMessage(msg);
+    }
+
+    public void sendPlayerState(PlayerState state) {
+        if (state == null) {
+            return;
+        }
+
+        PlayerState payload = new PlayerState(playerId, state.playerName != null ? state.playerName : playerName);
+        payload.x = state.x;
+        payload.y = state.y;
+        payload.facingX = state.facingX;
+        payload.facingY = state.facingY;
+        payload.currentItem = state.currentItem;
+        payload.pumping = state.pumping;
+        payload.isActive = state.isActive;
+
+        NetworkMessage msg = new NetworkMessage(
+            NetworkMessage.MessageType.PLAYER_MOVE,
+            playerId,
+            payload
+        );
+        sendMessage(msg);
+    }
+
     public NetworkMessage getIncomingMessage() {
         return incomingMessages.poll();
     }
@@ -219,15 +246,6 @@ public class GameClient {
 
     public String getPlayerName() {
         return playerName;
-    }
-
-    public void sendPlayerMove(double dx, double dy) {
-        NetworkMessage msg = new NetworkMessage(
-            NetworkMessage.MessageType.PLAYER_MOVE,
-            playerId,
-            new double[]{dx, dy}
-        );
-        sendMessage(msg);
     }
 
     public void sendPlayerAction(String action) {

@@ -4,6 +4,7 @@ import edu.cmsc137.submarine.core.AudioPlayer;
 import edu.cmsc137.submarine.core.GameState;
 import edu.cmsc137.submarine.core.ItemEntity;
 import edu.cmsc137.submarine.core.ItemType;
+import edu.cmsc137.submarine.core.TaskStation;
 import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -15,6 +16,7 @@ import java.awt.Image;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.HierarchyEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
@@ -48,11 +50,11 @@ public class GamePanel extends JPanel implements Runnable {
     private static final int TARGET_FPS = 60;
     private static final int HUD_VERTICAL_OFFSET = -40; //Input the destination of the hub
 
-    private final TileManager tileManager;
-    private GameState gameState;
+    protected final TileManager tileManager;
+    protected GameState gameState;
     private final InputHandler inputHandler;
-    private final List<TaskStation> taskStations;
-    private final List<ItemEntity> worldItems;
+    protected final List<TaskStation> taskStations;
+    protected final List<ItemEntity> worldItems;
 
     private Thread gameThread;
     private volatile boolean running;
@@ -84,12 +86,18 @@ public class GamePanel extends JPanel implements Runnable {
     private Image resumeBtnImage;
     private Image restartBtnImage;
     private Image quitBtnImage;
-    private AudioPlayer menuMusic;
-    private AudioPlayer gameMusic;
+    protected AudioPlayer menuMusic;
+    protected AudioPlayer gameMusic;
     private double loadingTimer = 0.0;
-    private boolean isMusicOn = true;
+    protected boolean isMusicOn = true;
     private boolean isSfxOn = true;
-    private ScreenState currentScreen = ScreenState.TITLE;
+    protected ScreenState currentScreen = ScreenState.TITLE;
+    private ActionListener onExit;
+
+    public void setOnExit(ActionListener listener) {
+        this.onExit = listener;
+    }
+
     private boolean isEnterHovered = false;
     private boolean isPlayHovered = false;
     private boolean isSettingsHovered = false;
@@ -219,6 +227,7 @@ public class GamePanel extends JPanel implements Runnable {
                             gameMusic.stop();
                             if (isMusicOn) menuMusic.playLooping(4_000_000L);
                             repaint();
+                            if (onExit != null) onExit.actionPerformed(null);
                         } else if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
                                 logicalY >= 54.5 && logicalY <= (54.5 + 84.9)) {
                             currentScreen = ScreenState.PAUSED;
@@ -270,6 +279,7 @@ public class GamePanel extends JPanel implements Runnable {
                             gameMusic.stop();
                             if (isMusicOn) menuMusic.playLooping(4_000_000L);
                             repaint();
+                            if (onExit != null) onExit.actionPerformed(null);
                         }
                         // Music ON/OFF
                         else if (logicalX >= 467.4 && logicalX <= (467.4 + 123.3) &&
@@ -524,17 +534,35 @@ public class GamePanel extends JPanel implements Runnable {
         return true;
     }
 
-    private void tryUseNearbyTaskStation() {
+    protected void tryUseNearbyTaskStation() {
         TaskStation station = findNearbyTaskStation();
         if (station == null) {
             return;
         }
 
+        // Reactor Switch is a hold task, it doesn't give buoyancy directly on click.
+        if (station.name.equals("Reactor Switch")) {
+            return;
+        }
+
         ItemType held = gameState.getHeldItemType();
         if (station.requiredItem == held) {
-            // reward buoyancy but do not consume the item
-            // player keeps the item and can use it again or drop it
-            gameState.addBuoyancy(station.buoyancyReward);
+            // Check cooperative dependency: Hand Pump requires reactor switch to be active (isPowerRoutedToPump = true)
+            if (station.name.equals("Reactor Core") && !gameState.isPowerRoutedToPump()) {
+                // Fails: plays system beep error and prevents buoyancy reward
+                java.awt.Toolkit.getDefaultToolkit().beep();
+                System.out.println("Hand pump failed: No power routed from Reactor Switch! Hold E on Reactor Switch.");
+                return;
+            }
+
+            // Attempt to interact (handles cooldown/anti-spam)
+            if (station.interact()) {
+                gameState.addBuoyancy(station.buoyancyReward);
+            } else {
+                // If on cooldown, play system beep and log it
+                java.awt.Toolkit.getDefaultToolkit().beep();
+                System.out.println("Task " + station.name + " is on cooldown!");
+            }
         }
     }
 
@@ -588,12 +616,14 @@ public class GamePanel extends JPanel implements Runnable {
 
     private List<TaskStation> createTaskStations() {
         List<TaskStation> stations = new ArrayList<>();
-        // command bridge
+        // command bridge - requires Wrench
         stations.add(new TaskStation("Nav Console", tileToPixel(5), tileToPixel(3), 18, ItemType.WRENCH));
-        // reactor room
+        // reactor room - Hand Pump (requires power to be routed)
         stations.add(new TaskStation("Reactor Core", tileToPixel(22), tileToPixel(13), 20, ItemType.HAND_PUMP));
-        // engine room
+        // engine room - requires Welder
         stations.add(new TaskStation("Engine Console", tileToPixel(31), tileToPixel(8), 15, ItemType.WELDER));
+        // storage room - Reactor Switch (for forced co-op dependency)
+        stations.add(new TaskStation("Reactor Switch", tileToPixel(19), tileToPixel(4), 0, ItemType.NONE));
         return stations;
     }
 
@@ -684,7 +714,6 @@ public class GamePanel extends JPanel implements Runnable {
                 Image imgToDraw = (isEnterHovered && enterHoverImage != null) ? enterHoverImage : enterBtnImage;
                 g2.drawImage(imgToDraw, btnX, btnY, btnW, btnH, null);
             }
-            g2.dispose();
             return;
         } else if (currentScreen == ScreenState.MAIN_MENU) {
             if (mainMenuBgImage != null) {
@@ -707,7 +736,6 @@ public class GamePanel extends JPanel implements Runnable {
                 }
             }
 
-            g2.dispose();
             return;
         } else if (currentScreen == ScreenState.SETTINGS) {
             if (settingsPageBgImage != null) {
@@ -731,7 +759,6 @@ public class GamePanel extends JPanel implements Runnable {
                 g2.drawImage(rulesBtnImage, (int) Math.round(800.7), (int) Math.round(245.6), (int) Math.round(123.3),
                         (int) Math.round(93.4), null);
             }
-            g2.dispose();
             return;
         } else if (currentScreen == ScreenState.LOADING) {
             if (loadingGifImage != null) {
@@ -743,7 +770,6 @@ public class GamePanel extends JPanel implements Runnable {
                 g2.setColor(Color.WHITE);
                 g2.drawString("LOADING...", PANEL_WIDTH / 2 - 50, PANEL_HEIGHT / 2);
             }
-            g2.dispose();
             return;
         }
 
@@ -789,7 +815,8 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        g2.dispose();
+        // Note: do not call g2.dispose() here — Swing manages the Graphics lifecycle
+        // and subclasses need the graphics context to remain valid for their own painting.
     }
 
     private void drawSubmarineRoom(Graphics2D g2) {
@@ -800,19 +827,69 @@ public class GamePanel extends JPanel implements Runnable {
         g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
         for (TaskStation station : taskStations) {
             boolean near = gameState.isNearTaskStation(station.centerX(), station.centerY(), TASK_INTERACTION_RADIUS);
-            Color base = near ? new Color(88, 192, 120) : new Color(208, 154, 84);
+            boolean interactable = station.isInteractable();
+            
+            // Link Hand Pump task dependency to power
+            boolean powerIssue = station.name.equals("Reactor Core") && !gameState.isPowerRoutedToPump();
+            
+            Color base;
+            if (!interactable) {
+                // Cooldown: flashing red or dark gray
+                long flashTime = System.currentTimeMillis() / 250 % 2;
+                base = (flashTime == 0) ? new Color(180, 50, 50) : new Color(90, 90, 90);
+            } else if (powerIssue) {
+                // Dependency locked: steel blue color
+                base = new Color(60, 80, 95);
+            } else {
+                base = near ? new Color(88, 192, 120) : new Color(208, 154, 84);
+            }
 
             g2.setColor(base);
             g2.fill(new RoundRectangle2D.Double(
                     station.x, station.y, TASK_STATION_W, TASK_STATION_H, 12, 12));
 
-            g2.setColor(new Color(12, 18, 26));
-            g2.drawString("TASK", station.x + 22, station.y + 22);
-            g2.drawString(formatItemLabel(station.requiredItem), station.x + 8, station.y + 40);
-            g2.drawString("+" + station.buoyancyReward, station.x + 24, station.y + 56);
+            // Accent border
+            g2.setColor(new Color(255, 255, 255, 40));
+            g2.draw(new RoundRectangle2D.Double(
+                    station.x, station.y, TASK_STATION_W, TASK_STATION_H, 12, 12));
+
+            g2.setColor(Color.WHITE);
+            // Draw text dynamically based on status
+            if (!interactable) {
+                g2.drawString("OVERHEATED", station.x + 4, station.y + 22);
+                long timeLeft = (station.getLastUsedTime() + station.getCooldownDuration() - System.currentTimeMillis()) / 1000;
+                g2.drawString(Math.max(0, timeLeft) + "s cooldown", station.x + 8, station.y + 40);
+            } else if (powerIssue) {
+                g2.drawString("NO POWER", station.x + 10, station.y + 22);
+                g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
+                g2.drawString("ENABLE SWITCH", station.x + 4, station.y + 40);
+                g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+            } else if (station.name.equals("Reactor Switch")) {
+                g2.drawString("PWR SWITCH", station.x + 4, station.y + 22);
+                boolean active = gameState.isPowerRoutedToPump();
+                g2.drawString(active ? "[ACTIVE]" : "[OFFLINE]", station.x + 12, station.y + 40);
+            } else {
+                g2.drawString(station.name, station.x + 6, station.y + 22);
+                g2.drawString(formatItemLabel(station.requiredItem), station.x + 8, station.y + 40);
+            }
+            
+            // Draw rewards
+            if (station.buoyancyReward > 0 && interactable && !powerIssue) {
+                g2.setColor(new Color(150, 255, 150));
+                g2.drawString("+" + station.buoyancyReward + " BUOY", station.x + 12, station.y + 58);
+            }
 
             if (near) {
-                g2.drawString("Press E", station.x + 8, station.y + TASK_STATION_H + 15);
+                g2.setColor(Color.YELLOW);
+                if (station.name.equals("Reactor Switch")) {
+                    g2.drawString("HOLD E", station.x + 15, station.y + TASK_STATION_H + 15);
+                } else if (!interactable) {
+                    g2.drawString("WAIT...", station.x + 18, station.y + TASK_STATION_H + 15);
+                } else if (powerIssue) {
+                    g2.drawString("NO POWER!", station.x + 8, station.y + TASK_STATION_H + 15);
+                } else {
+                    g2.drawString("Press E", station.x + 15, station.y + TASK_STATION_H + 15);
+                }
             }
         }
     }
@@ -954,7 +1031,7 @@ public class GamePanel extends JPanel implements Runnable {
         g2.drawString("Surface", x + w - 58, y);
     }
 
-    private void drawRoundEndOverlay(Graphics2D g2) {
+    protected void drawRoundEndOverlay(Graphics2D g2) {
         if (gameState.hasWon()) {
             if (victoryImage != null) {
                 g2.drawImage(victoryImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
@@ -1043,29 +1120,7 @@ public class GamePanel extends JPanel implements Runnable {
     //     g2.drawString("Player tile: " + playerTileX + ", " + playerTileY, 20, 200);
     // }
 
-    private static final class TaskStation {
-        private final String name;
-        private final int x;
-        private final int y;
-        private final int buoyancyReward;
-        private final ItemType requiredItem;
-
-        private TaskStation(String name, int x, int y, int buoyancyReward, ItemType requiredItem) {
-            this.name = name;
-            this.x = x;
-            this.y = y;
-            this.buoyancyReward = buoyancyReward;
-            this.requiredItem = requiredItem == null ? ItemType.NONE : requiredItem;
-        }
-
-        private double centerX() {
-            return x + TASK_STATION_W * 0.5;
-        }
-
-        private double centerY() {
-            return y + TASK_STATION_H * 0.5;
-        }
-    }
+    // Inner class removed because it is now defined in edu.cmsc137.submarine.core.TaskStation
 
     private String formatItemLabel(ItemType itemType) {
         if (itemType == null || itemType == ItemType.NONE) {
@@ -1082,5 +1137,9 @@ public class GamePanel extends JPanel implements Runnable {
             builder.append(parts[i].charAt(0)).append(parts[i].substring(1));
         }
         return builder.toString();
+    }
+
+    public InputHandler getInputHandler() {
+        return inputHandler;
     }
 }

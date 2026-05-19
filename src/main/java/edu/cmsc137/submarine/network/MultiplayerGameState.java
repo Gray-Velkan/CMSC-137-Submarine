@@ -1,7 +1,10 @@
 package edu.cmsc137.submarine.network;
 
 import edu.cmsc137.submarine.core.GameState;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -41,7 +44,13 @@ public class MultiplayerGameState extends GameState {
 
     public Collection<PlayerState> getAllRemotePlayerStates() {
         synchronized (stateLock) {
-            return new ArrayList<>(remotePlayerStates.values());
+            List<PlayerState> visiblePlayers = new ArrayList<>();
+            for (PlayerState state : remotePlayerStates.values()) {
+                if (state.playerId != localPlayerId) {
+                    visiblePlayers.add(state);
+                }
+            }
+            return visiblePlayers;
         }
     }
 
@@ -53,18 +62,26 @@ public class MultiplayerGameState extends GameState {
 
     public int getRemotePlayerCount() {
         synchronized (stateLock) {
-            return remotePlayerStates.size();
+            int count = 0;
+            for (PlayerState state : remotePlayerStates.values()) {
+                if (state.playerId != localPlayerId) {
+                    count++;
+                }
+            }
+            return count;
         }
     }
 
     public void updateFromSnapshot(GameStateSnapshot snapshot) {
         if (snapshot != null) {
             synchronized (stateLock) {
-                // Update shared game state
+                setBuoyancy(snapshot.submarineBuoyancy);
+                setTimeRemainingSeconds(snapshot.timeRemainingSeconds);
+                setSank(snapshot.sank);
+
                 if (snapshot.playerStates != null) {
-                    for (Map.Entry<Integer, PlayerState> entry : snapshot.playerStates.entrySet()) {
-                        remotePlayerStates.put(entry.getKey(), entry.getValue());
-                    }
+                    remotePlayerStates.clear();
+                    remotePlayerStates.putAll(snapshot.playerStates);
                 }
             }
         }

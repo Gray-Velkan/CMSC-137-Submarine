@@ -17,6 +17,7 @@ public class PlayerState implements Serializable {
     public int facingY;
     public ItemType currentItem;
     public boolean pumping;
+    public boolean interactPressed;
     public boolean isActive;
 
     public PlayerState() {
