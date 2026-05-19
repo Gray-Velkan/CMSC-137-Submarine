@@ -14,6 +14,7 @@ public class InputHandler implements KeyListener {
     private boolean interactQueued;
     private boolean dropQueued;
     private boolean throwQueued;
+    private boolean clickQueued;
 
     @Override
     public void keyTyped(KeyEvent e) {
@@ -92,5 +93,15 @@ public class InputHandler implements KeyListener {
             return true;
         }
         return false;
+    }
+
+    public boolean consumeClick() {
+        boolean wasQueued = clickQueued;
+        clickQueued = false;
+        return wasQueued;
+    }
+
+    public void queueClick() {
+        clickQueued = true;
     }
 }

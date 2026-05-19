@@ -6,24 +6,24 @@ import edu.cmsc137.submarine.core.ItemEntity;
 import edu.cmsc137.submarine.core.ItemType;
 import edu.cmsc137.submarine.input.InputHandler;
 import java.awt.Color;
-import java.awt.Image;
-import java.io.File;
-import java.io.IOException;
-import javax.imageio.ImageIO;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.io.File;
+import java.io.IOException;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
+import javax.imageio.ImageIO;
 import javax.swing.JPanel;
 
 public class GamePanel extends JPanel implements Runnable {
@@ -46,6 +46,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private static final double INITIAL_TIME_SECONDS = 180.0;
     private static final int TARGET_FPS = 60;
+    private static final int HUD_VERTICAL_OFFSET = -40; //Input the destination of the hub
 
     private final TileManager tileManager;
     private GameState gameState;
@@ -76,7 +77,7 @@ public class GamePanel extends JPanel implements Runnable {
     private Image sfxOffBtnImage;
     private Image rulesBtnImage;
     private Image mapBgImage;
-    private Image loadingGifImage;
+    private final Image loadingGifImage;
     private Image navbarImage;
     private Image pauseBtnImage;
     private Image pauseOverlayImage;
@@ -212,7 +213,13 @@ public class GamePanel extends JPanel implements Runnable {
                             repaint();
                         }
                     } else if (currentScreen == ScreenState.GAME) {
-                        if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
+                        if (gameState.isRoundOver()) {
+                            // Any click on round-end overlay returns to title
+                            currentScreen = ScreenState.MAIN_MENU;
+                            gameMusic.stop();
+                            if (isMusicOn) menuMusic.playLooping(4_000_000L);
+                            repaint();
+                        } else if (logicalX >= 1113.9 && logicalX <= (1113.9 + 84.9) &&
                                 logicalY >= 54.5 && logicalY <= (54.5 + 84.9)) {
                             currentScreen = ScreenState.PAUSED;
                             repaint();
@@ -418,7 +425,16 @@ public class GamePanel extends JPanel implements Runnable {
         }
     }
 
-    private void processInput(double deltaSeconds) {
+    protected InputHandler getInputHandler() {
+        return inputHandler;
+    }
+
+    protected void updateState(double deltaSeconds) {
+        // keep all simulation progression inside game state
+        gameState.update(deltaSeconds);
+    }
+
+    protected void processInput(double deltaSeconds) {
         if (gameState.isRoundOver()) {
             return;
         }
@@ -484,11 +500,6 @@ public class GamePanel extends JPanel implements Runnable {
         if (!tileManager.isSolidHitbox(projectedY)) {
             gameState.movePlayer(0.0, moveY, PLAYER_WIDTH, PLAYER_HEIGHT);
         }
-    }
-
-    private void updateState(double deltaSeconds) {
-        // keep all simulation progression inside game state
-        gameState.update(deltaSeconds);
     }
 
     private void handleInteraction() {
@@ -884,7 +895,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     private void drawHud(Graphics2D g2) {
         if (navbarImage != null) {
-            g2.drawImage(navbarImage, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, null);
+            g2.drawImage(navbarImage, 0, HUD_VERTICAL_OFFSET, PANEL_WIDTH, PANEL_HEIGHT, null);
         }
 
         g2.setColor(new Color(240, 230, 140)); // A nice yellowish color for numbers
@@ -892,20 +903,20 @@ public class GamePanel extends JPanel implements Runnable {
 
         // Buoyancy: "48/100" format at bottom-left of Buoyancy box
         g2.drawString(gameState.getBuoyancy() + "/" + gameState.getBuoyancyTarget(), (int) Math.round(113.3),
-                (int) Math.round(130.0));
+                (int) Math.round(130.0 + HUD_VERTICAL_OFFSET));
 
         // Time: Format as whole number centered below the clock icon
         int totalSeconds = (int) Math.max(0, gameState.getTimeRemainingSeconds());
-        g2.drawString(String.valueOf(totalSeconds), (int) Math.round(286.8), (int) Math.round(120.0));
+        g2.drawString(String.valueOf(totalSeconds), (int) Math.round(286.8), (int) Math.round(120.0 + HUD_VERTICAL_OFFSET));
 
         // Drain: Bottom-right below the pipe
         g2.drawString(String.format("%.1f/s", gameState.getBuoyancyDrainPerSecond()), (int) Math.round(357.0),
-                (int) Math.round(130.0));
+                (int) Math.round(130.0 + HUD_VERTICAL_OFFSET));
 
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("Arial Rounded MT Bold", Font.BOLD, 15));
         g2.drawString(formatItemLabel(gameState.getHeldItemType()).toUpperCase(), (int) Math.round(451.9),
-                (int) Math.round(110.0));
+                (int) Math.round(110.0 + HUD_VERTICAL_OFFSET));
 
         drawDepthGauge(g2, (int) Math.round(881.3), (int) Math.round(100.9), (int) Math.round(161.0),
                 (int) Math.round(33.5));
@@ -982,6 +993,26 @@ public class GamePanel extends JPanel implements Runnable {
                 }
             }
         }
+
+        // Draw "Return to Menu" button
+        int buttonX = PANEL_WIDTH / 2 - 100;
+        int buttonY = PANEL_HEIGHT / 2 + 80;
+        int buttonW = 200;
+        int buttonH = 60;
+
+        g2.setColor(new Color(88, 192, 120));
+        g2.fillRoundRect(buttonX, buttonY, buttonW, buttonH, 15, 15);
+
+        g2.setColor(new Color(14, 24, 34));
+        g2.setStroke(new java.awt.BasicStroke(2.0f));
+        g2.drawRoundRect(buttonX, buttonY, buttonW, buttonH, 15, 15);
+
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        String buttonText = "Return to Menu";
+        int textX = buttonX + (buttonW - g2.getFontMetrics().stringWidth(buttonText)) / 2;
+        int textY = buttonY + ((buttonH - g2.getFontMetrics().getHeight()) / 2) + g2.getFontMetrics().getAscent();
+        g2.drawString(buttonText, textX, textY);
     }
 
     // private void drawTileDebug(Graphics2D g2) {
